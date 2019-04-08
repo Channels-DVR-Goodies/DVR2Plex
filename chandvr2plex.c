@@ -1,288 +1,587 @@
 //
 // Created by Paul on 4/4/2019.
 //
+// ToDo: #define __STDC_ISO_10646__
 
 #include "chandvr2plex.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <limits.h>
+#define _XOPEN_SOURCE 1
+#define __USE_XOPEN 1
+#include <time.h>
+
+/*
+ * patterns:
+ * SnnEnn
+ * nXnn
+ * nnXnn
+ * nnnn-nn-nn
+ * (nnnn)
+ */
 
 typedef enum
 {
     kNull = 0,
-    kControl,
-    kSpace,
-    kNumber,
-    kPunctuation,
-    kAlphabetic,
-    kSeason,
-    kEpisode,
-    kDash,
-    kPeriod,
-    kSeparator,
+    kNumber
 } tCharClass;
 
-tCharClass classifyChar[256] = {
-    kNull,          // 0x00
-    kControl,       // 0x01
-    kControl,       // 0x02
-    kControl,       // 0x03
-    kControl,       // 0x04
-    kControl,       // 0x05
-    kControl,       // 0x06
-    kControl,       // 0x07
-    kControl,       // 0x08
-    kControl,       // 0x09
-    kControl,       // 0x0a
-    kControl,       // 0x0b
-    kControl,       // 0x0c
-    kControl,       // 0x0d
-    kControl,       // 0x0e
-    kControl,       // 0x0f
-    kControl,       // 0x10
-    kControl,       // 0x11
-    kControl,       // 0x12
-    kControl,       // 0x13
-    kControl,       // 0x14
-    kControl,       // 0x15
-    kControl,       // 0x16
-    kControl,       // 0x17
-    kControl,       // 0x18
-    kControl,       // 0x19
-    kControl,       // 0x1a
-    kControl,       // 0x1b
-    kControl,       // 0x1c
-    kControl,       // 0x1d
-    kControl,       // 0x1e
-    kControl,       // 0x1f
-    kSpace,         // ' '
-    kPunctuation,   // '!'
-    kPunctuation,   // '"'
-    kPunctuation,   // '#'
-    kPunctuation,   // '$'
-    kPunctuation,   // '%'
-    kPunctuation,   // '&'
-    kPunctuation,   // '''
-    kPunctuation,   // '('
-    kPunctuation,   // ')'
-    kPunctuation,   // '*'
-    kPunctuation,   // '+'
-    kPunctuation,   // ','
-    kDash,          // '-'
-    kPeriod,        // '.'
-    kPunctuation,   // '/'
-    kNumber,        // '0'
-    kNumber,        // '1'
-    kNumber,        // '2'
-    kNumber,        // '3'
-    kNumber,        // '4'
-    kNumber,        // '5'
-    kNumber,        // '6'
-    kNumber,        // '7'
-    kNumber,        // '8'
-    kNumber,        // '9'
-    kPunctuation,   // ':'
-    kPunctuation,   // ';'
-    kPunctuation,   // '<'
-    kPunctuation,   // '='
-    kPunctuation,   // '>'
-    kPunctuation,   // '?'
-    kPunctuation,   // '@'
-    kAlphabetic,    // 'A'
-    kAlphabetic,    // 'B'
-    kAlphabetic,    // 'C'
-    kAlphabetic,    // 'D'
-    kEpisode,       // 'E'
-    kAlphabetic,    // 'F'
-    kAlphabetic,    // 'G'
-    kAlphabetic,    // 'H'
-    kAlphabetic,    // 'I'
-    kAlphabetic,    // 'J'
-    kAlphabetic,    // 'K'
-    kAlphabetic,    // 'L'
-    kAlphabetic,    // 'M'
-    kAlphabetic,    // 'N'
-    kAlphabetic,    // 'O'
-    kAlphabetic,    // 'P'
-    kAlphabetic,    // 'Q'
-    kAlphabetic,    // 'R'
-    kSeason,        // 'S'
-    kAlphabetic,    // 'T'
-    kAlphabetic,    // 'U'
-    kAlphabetic,    // 'V'
-    kAlphabetic,    // 'W'
-    kSeparator,     // 'X'
-    kAlphabetic,    // 'Y'
-    kAlphabetic,    // 'Z'
-    kPunctuation,   // '['
-    kPunctuation,   // '\'
-    kPunctuation,   // ']'
-    kPunctuation,   // '^'
-    kPunctuation,   // '_'
-    kPunctuation,   // '`'
-    kAlphabetic,    // 'a'
-    kAlphabetic,    // 'b'
-    kAlphabetic,    // 'c'
-    kAlphabetic,    // 'd'
-    kEpisode,       // 'e'
-    kAlphabetic,    // 'f'
-    kAlphabetic,    // 'g'
-    kAlphabetic,    // 'h'
-    kAlphabetic,    // 'i'
-    kAlphabetic,    // 'j'
-    kAlphabetic,    // 'k'
-    kAlphabetic,    // 'l'
-    kAlphabetic,    // 'm'
-    kAlphabetic,    // 'n'
-    kAlphabetic,    // 'o'
-    kAlphabetic,    // 'p'
-    kAlphabetic,    // 'q'
-    kAlphabetic,    // 'r'
-    kSeason,        // 's'
-    kAlphabetic,    // 't'
-    kAlphabetic,    // 'u'
-    kAlphabetic,    // 'v'
-    kAlphabetic,    // 'w'
-    kSeparator,     // 'x'
-    kAlphabetic,    // 'y'
-    kAlphabetic,    // 'z'
-    kPunctuation,   // '{'
-    kPunctuation,   // '|'
-    kPunctuation,   // '}'
-    kPunctuation,   // '~'
-    kNull,          // 0x7f
-    kNull,          // 0x80
-    kNull,          // 0x81
-    kNull,          // 0x82
-    kNull,          // 0x83
-    kNull,          // 0x84
-    kNull,          // 0x85
-    kNull,          // 0x86
-    kNull,          // 0x87
-    kNull,          // 0x88
-    kNull,          // 0x89
-    kNull,          // 0x8a
-    kNull,          // 0x8b
-    kNull,          // 0x8c
-    kNull,          // 0x8d
-    kNull,          // 0x8e
-    kNull,          // 0x8f
-    kNull,          // 0x90
-    kNull,          // 0x91
-    kNull,          // 0x92
-    kNull,          // 0x93
-    kNull,          // 0x94
-    kNull,          // 0x95
-    kNull,          // 0x96
-    kNull,          // 0x97
-    kNull,          // 0x98
-    kNull,          // 0x99
-    kNull,          // 0x9a
-    kNull,          // 0x9b
-    kNull,          // 0x9c
-    kNull,          // 0x9d
-    kNull,          // 0x9e
-    kNull,          // 0x9f
-    kNull,          // 0xa0
-    kNull,          // 0xa1
-    kNull,          // 0xa2
-    kNull,          // 0xa3
-    kNull,          // 0xa4
-    kNull,          // 0xa5
-    kNull,          // 0xa6
-    kNull,          // 0xa7
-    kNull,          // 0xa8
-    kNull,          // 0xa9
-    kNull,          // 0xaa
-    kNull,          // 0xab
-    kNull,          // 0xac
-    kNull,          // 0xad
-    kNull,          // 0xae
-    kNull,          // 0xaf
-    kNull,          // 0xb0
-    kNull,          // 0xb1
-    kNull,          // 0xb2
-    kNull,          // 0xb3
-    kNull,          // 0xb4
-    kNull,          // 0xb5
-    kNull,          // 0xb6
-    kNull,          // 0xb7
-    kNull,          // 0xb8
-    kNull,          // 0xb9
-    kNull,          // 0xba
-    kNull,          // 0xbb
-    kNull,          // 0xbc
-    kNull,          // 0xbd
-    kNull,          // 0xbe
-    kNull,          // 0xbf
-    kNull,          // 0xc0
-    kNull,          // 0xc1
-    kNull,          // 0xc2
-    kNull,          // 0xc3
-    kNull,          // 0xc4
-    kNull,          // 0xc5
-    kNull,          // 0xc6
-    kNull,          // 0xc7
-    kNull,          // 0xc8
-    kNull,          // 0xc9
-    kNull,          // 0xca
-    kNull,          // 0xcb
-    kNull,          // 0xcc
-    kNull,          // 0xcd
-    kNull,          // 0xce
-    kNull,          // 0xcf
-    kNull,          // 0xd0
-    kNull,          // 0xd1
-    kNull,          // 0xd2
-    kNull,          // 0xd3
-    kNull,          // 0xd4
-    kNull,          // 0xd5
-    kNull,          // 0xd6
-    kNull,          // 0xd7
-    kNull,          // 0xd8
-    kNull,          // 0xd9
-    kNull,          // 0xda
-    kNull,          // 0xdb
-    kNull,          // 0xdc
-    kNull,          // 0xdd
-    kNull,          // 0xde
-    kNull,          // 0xdf
-    kNull,          // 0xe0
-    kNull,          // 0xe1
-    kNull,          // 0xe2
-    kNull,          // 0xe3
-    kNull,          // 0xe4
-    kNull,          // 0xe5
-    kNull,          // 0xe6
-    kNull,          // 0xe7
-    kNull,          // 0xe8
-    kNull,          // 0xe9
-    kNull,          // 0xea
-    kNull,          // 0xeb
-    kNull,          // 0xec
-    kNull,          // 0xed
-    kNull,          // 0xee
-    kNull,          // 0xef
-    kNull,          // 0xf0
-    kNull,          // 0xf1
-    kNull,          // 0xf2
-    kNull,          // 0xf3
-    kNull,          // 0xf4
-    kNull,          // 0xf5
-    kNull,          // 0xf6
-    kNull,          // 0xf7
-    kNull,          // 0xf8
-    kNull,          // 0xf9
-    kNull,          // 0xfa
-    kNull,          // 0xfb
-    kNull,          // 0xfc
-    kNull,          // 0xfd
-    kNull,          // 0xfe
-    kNull           // 0xff
+typedef unsigned char byte;
+typedef unsigned long tHash;
+
+tCharClass hashChar[256] = {
+    kNull,              0x01,               0x02,               0x03,
+    0x04,               0x05,               0x06,               0x07,
+    0x08,               0x09,               0x0a,               0x0b,
+    0x0c,               0x0d,               0x0e,               0x0f,
+    0x10,               0x11,               0x12,               0x13,
+    0x14,               0x15,               0x16,               0x17,
+    0x18,               0x19,               0x1a,               0x1b,
+    0x1c,               0x1d,               0x1e,               0x1f,
+    ' ',                kNull, /* ! */      '"',                '#',
+    '$',                '%',                '&',                kNull   /* ' */,
+    '(',                ')',                '*',                '+',
+    ',',                '-',                '.',                '/',
+    kNumber /* 0 */,    kNumber /* 1 */,    kNumber /* 2 */,    kNumber /* 3 */,
+    kNumber /* 4 */,    kNumber /* 5 */,    kNumber /* 6 */,    kNumber /* 7 */,
+    kNumber /* 8 */,    kNumber /* 9 */,    ':',                ';',
+    '<',                '=',                '>',                kNull, /* ? */
+    '@',                'a',                'b',                'c',    /* map uppercase to lowercase */
+    'd',                'e',                'f',                'g',
+    'h',                'i',                'j',                'k',
+    'l',                'm',                'n',                'o',
+    'p',                'q',                'r',                's',
+    't',                'u',                'v',                'w',
+    'x',                'y',                'z',                '[',
+    '\\',               ']',                '^',                '_',
+    '`',                'a',                'b',                'c',
+    'd',                'e',                'f',                'g',
+    'h',                'i',                'j',                'k',
+    'l',                'm',                'n',                'o',
+    'p',                'q',                'r',                's',
+    't',                'u',                'v',                'w',
+    'x',                'y',                'z',                '{',
+    '|',                '}',                '~',                0x7f,
+    0x80,               0x81,               0x82,               0x83,
+    0x84,               0x85,               0x86,               0x87,
+    0x88,               0x89,               0x8a,               0x8b,
+    0x8c,               0x8d,               0x8e,               0x8f,
+    0x90,               0x91,               0x92,               0x93,
+    0x94,               0x95,               0x96,               0x97,
+    0x98,               0x99,               0x9a,               0x9b,
+    0x9c,               0x9d,               0x9e,               0x9f,
+    0xa0,               0xa1,               0xa2,               0xa3,
+    0xa4,               0xa5,               0xa6,               0xa7,
+    0xa8,               0xa9,               0xaa,               0xab,
+    0xac,               0xad,               0xae,               0xaf,
+    0xb0,               0xb1,               0xb2,               0xb3,
+    0xb4,               0xb5,               0xb6,               0xb7,
+    0xb8,               0xb9,               0xba,               0xbb,
+    0xbc,               0xbd,               0xbe,               0xbf,
+    0xc0,               0xc1,               0xc2,               0xc3,
+    0xc4,               0xc5,               0xc6,               0xc7,
+    0xc8,               0xc9,               0xca,               0xcb,
+    0xcc,               0xcd,               0xce,               0xcf,
+    0xd0,               0xd1,               0xd2,               0xd3,
+    0xd4,               0xd5,               0xd6,               0xd7,
+    0xd8,               0xd9,               0xda,               0xdb,
+    0xdc,               0xdd,               0xde,               0xdf,
+    0xe0,               0xe1,               0xe2,               0xe3,
+    0xe4,               0xe5,               0xe6,               0xe7,
+    0xe8,               0xe9,               0xea,               0xeb,
+    0xec,               0xed,               0xee,               0xef,
+    0xf0,               0xf1,               0xf2,               0xf3,
+    0xf4,               0xf5,               0xf6,               0xf7,
+    0xf8,               0xf9,               0xfa,               0xfb,
+    0xfc,               0xfd,               0xfe,               0xff
 };
+
+typedef struct
+{
+    char * directory;
+    char * basename;
+    char separator;
+    char * extension;
+    struct
+    {
+        char * series;
+        char * episode;
+    } title;
+    struct
+    {
+        int season;
+        int episode;
+    } number;
+    struct {
+        struct tm firstAired;
+        struct tm recorded;
+    } date;
+    unsigned int year;
+} tShow;
+
+void generateMapping(void)
+{
+    char *out;
+    for (int i = 0; i < 256; ++i)
+    {
+        switch (i)
+        {
+        case '\'':
+            printf("\tkNull\t/* %c */,", i );
+            break;
+
+        default:
+            if (isprint(i))
+            {
+                if ( isdigit( i ) )
+                {
+                    printf( "\tkNumber /* %c */,", i );
+                }
+                else
+                {
+                    printf( "\t\'%c\',\t", tolower( i ) );
+                }
+            }
+            else
+            {
+                printf( "\t0x%02x,\t", i );
+            }
+            break;
+        }
+        printf("%c", (i%4 == 3)? '\n': '\t');
+    }
+}
+
+#define kHashYear       0x0000000152354555  // (yyyy)
+#define kHashSnnEnn     0x00000003c7c0f9bd  // SnnEnn
+#define kHashSyyyyEnn   0x00001bb6ccda0fbd  // SyyyyEnn
+#define kHashOneDash    0x000000000000002d  // -
+#define kHashDate       0x0001d10a22859cbd  // yyyy-mm-dd
+#define kHashDateTime   0x61e28d729df2157d  // yyyy-mm-dd-hhmm
+
+int parseName( char *name, tShow *show )
+{
+    int histogram[256];
+
+    memset( histogram, 0, sizeof(histogram));
+    for ( char * s = name; *s != '\0'; ++s )
+    {
+        // don't count all the periods in acronyms like S.W.A.T. and S.H.I.E.L.D.
+        if ( *s != '.' || !isprint( s[1] ) || s[2] != '.' )
+        {
+            histogram[ *s ] += 1;
+        }
+    }
+
+    unsigned char sep = ' ';
+    if (histogram['.'] > histogram[sep])
+        sep = '.';
+    if (histogram['_'] > histogram[sep])
+        sep = '_';
+    if (histogram['-'] > histogram[sep])
+        sep = '-';
+    show->separator = sep;
+
+
+    char *src = show->basename;
+    char *dest = strdup(src);
+    char *prevSep;
+    char *start;
+    tHash hash = 0;
+    char  temp[50];
+    struct tm year;
+
+    start = dest;
+    prevSep = NULL;
+    hash = 0;
+    unsigned char c;
+    do {
+        c = *src;
+        if ( c != sep && c != '\0' )
+        {
+            *dest = c;
+            if ( hashChar[c] != kNull ) /* we ignore some characters when calculating the hash */
+            {
+                hash ^= hash * 43 + hashChar[ c ];
+            }
+        }
+        else
+        {
+            // we reached a separator or the end of the string
+            *dest = '\0';
+
+            switch (hash)
+            {
+                // hashes of the patterns we're looking for.
+            case kHashYear:
+            case kHashSnnEnn:
+            case kHashSyyyyEnn:
+            case kHashOneDash:
+            case kHashDate:
+            case kHashDateTime:
+                // first terminate the previous run
+                if ( prevSep != NULL )
+                {
+                    *prevSep = '\0';
+                    fprintf( stdout, "prev: \'%s\'\n", start);
+
+                    if ( show->title.series == NULL )
+                        show->title.series = strdup(start);
+                    else
+                        show->title.episode = strdup(start);
+
+                    // now point at the hash match, which is just past prevSep
+                    start = &prevSep[1];
+                }
+                prevSep = NULL;
+                break;
+
+            default:
+                if ( c == '\0' )
+                {
+                    fprintf( stdout, "final: \'%s\'\n", start);
+
+                    if ( show->title.series == NULL )
+                        show->title.series = strdup(start);
+                    else
+                        show->title.episode = strdup(start);
+                }
+                else
+                {
+                    *dest = ' ';
+                }
+                prevSep = dest; // may need this on the next iteration
+                break;
+            }
+
+            fprintf( stdout, "current: \'" );
+            fwrite( start, dest - start, sizeof(char), stdout);
+            fprintf( stdout, "\' = %016lx\n", hash );
+
+            switch (hash)
+            {
+            case kHashYear: // we found '(nnnn)'
+                printf( "(year) = %s\n", start );
+                memset( &year, 0, sizeof(year) );
+                strptime( start, "(%Y)", &year );
+                show->year = year.tm_year + 1900;
+                printf("year: %u\n", show->year);
+                start = &dest[1];
+                break;
+
+            case kHashSnnEnn:   // we found 'SnnEnn'
+            case kHashSyyyyEnn: // or 'SyyyyEnn'
+                printf("SnnEnn = %s\n", start);
+                sscanf( start, "%*c%u%*c%u", &show->number.season, &show->number.episode);
+                printf("season: %u, episode: %u\n", show->number.season, show->number.episode );
+                start = &dest[1];
+                break;
+
+            case kHashOneDash:
+                printf("one dash = %s\n", start);
+                start = &dest[1];
+                break;
+
+            case kHashDate:
+                printf("yyyy-mm-dd = %s\n", start);
+                strptime( start, "%Y-%m-%d", &show->date.firstAired );
+                strftime( (char * restrict)temp, sizeof(temp), "%x", &show->date.firstAired );
+                printf("first aired: %s\n", temp);
+                start = &dest[1];
+                break;
+
+            case kHashDateTime:
+                printf("yyyy-mm-dd-hhmm = %s\n", start);
+                strptime( start, "%Y-%m-%d-%H%M", &show->date.recorded);
+                strftime( (char * restrict)temp, sizeof(temp), "%x %X", &show->date.recorded );
+                printf("recorded: %s\n", temp);
+                start = &dest[1];
+                break;
+
+            default:
+                break;
+            }
+            hash = 0;
+        }
+        ++src;
+        ++dest;
+    } while ( c != '\0' );
+
+    *dest = '\0';
+
+}
+
+/*
+ * carve up the path into directory path, basename and extension
+ */
+int parsePath( char *path, tShow *show )
+{
+    int result = 0;
+    char *lastSlash = strrchr( path, '/' );
+    char *lastPeriod = strrchr( path, '.' );
+
+
+    if ( lastSlash != NULL )
+    {
+        ++lastSlash;
+        show->directory = strndup( path, lastSlash - path);
+        if (lastPeriod != NULL)
+        {
+            show->basename = strndup( lastSlash, lastPeriod - lastSlash );
+            show->extension = strndup( lastPeriod, NAME_MAX );
+        }
+        else
+        {
+            show->basename = strndup( lastSlash, NAME_MAX );
+            show->extension = strdup("");
+        }
+    }
+    else
+    {
+      show->directory = strdup("./");
+      if (lastPeriod != NULL) {
+        show->basename = strndup(path, lastPeriod - path);
+        show->extension = strndup(lastPeriod, NAME_MAX);
+      } else {
+        show->basename = strndup(path, NAME_MAX);
+        show->extension = strdup("");
+      }
+    }
+
+    parseName( show->basename, show);
+
+    printf("    directory = \'%s\'\n", show->directory );
+    printf("     basename = \'%s\'\n", show->basename );
+    printf("    separator = \'%c\'\n", show->separator );
+    printf("    extension = \'%s\'\n", show->extension );
+    printf(" series title = \'%s\'\n", show->title.series );
+    printf("       season = %d\n", show->number.season );
+    printf("      episode = %d\n", show->number.episode );
+    printf("episode title = \'%s\'\n", show->title.episode );
+
+}
+
+tHash hashString( unsigned char *s, unsigned char separator )
+{
+    tHash result = 0;
+    while (*s != '\0' && *s != separator)
+    {
+        if ( hashChar[*s] != kNull ) /* we ignore some characters when calculating the hash */
+        {
+            result ^= result * 43 + hashChar[ *s ];
+        }
+        ++s;
+    }
+    return result;
+}
+
+#define kHashSource         0x0000000416730735
+#define kHashSeries         0x00000003d1109b5f
+#define kHashEpisode        0x00000099d3300841
+#define kHashTitle          0x000000001857f9b5
+#define kHashSeason         0x000000043a32a26c
+#define kHashExtension      0x00045d732bb4c26c
+#define kHashSeasonFolder   0x26b2db9d04411e4c
+
+char *buildString( const char *template, tShow *show )
+{
+    const char *t = template;
+    char *result = NULL;
+    unsigned long hash;
+    char *s;
+    char c;
+    char param[512];
+    char isDefined;
+
+    result = malloc(32768);
+    s = result;
+
+    if (s != NULL)
+    {
+        c = *t++;
+        while ( c != '\0' )
+        {
+            if ( c != '%' )
+            {
+                *s++ = c;
+            }
+            else
+            {
+                c = *t++;
+                if ( c == '%' )
+                {
+                    *s++ = '%';
+                }
+                else
+                {
+                    hash = 0;
+                    while ( c != '\0' && c != '%' && c != '?')
+                    {
+                        if ( hashChar[ c ] != kNull ) /* we ignore some characters when calculating the hash */
+                        {
+                            hash ^= hash * 43 + hashChar[ c ];
+                        }
+                        c = *t++;
+                    }
+                    param[0] = '\0';
+                    isDefined = 0;
+                    switch (hash)
+                    {
+                    case kHashSource:
+                        isDefined = 1;
+                        snprintf( param, sizeof(param),
+                            "%s/%s%s", show->directory, show->basename, show->extension );
+                        break;
+
+                    case kHashSeries:
+                        isDefined = ( show->title.series != NULL );
+                        if (isDefined)
+                        {
+                            strncpy( param, show->title.series, sizeof(param) );
+                        }
+                        break;
+
+                    case kHashTitle:
+                        isDefined = ( show->title.episode != NULL );
+                        if (isDefined)
+                        {
+                            strncpy( param, show->title.episode, sizeof( param ) );
+                        }
+                        break;
+
+                    case kHashSeason:
+                        isDefined = ( show->number.season != -1 );
+                        if (isDefined)
+                        {
+                            snprintf( param, sizeof(param), "%02d", show->number.season );
+                        }
+                        break;
+
+                    case kHashSeasonFolder:
+                        isDefined = ( show->number.season != -1 );
+                        if (isDefined)
+                        {
+                            if ( show->number.season == 0 )
+                            {
+                                strncpy( param, "Specials", sizeof( param ) );
+                            }
+                            else
+                            {
+                                snprintf( param, sizeof( param ), "Season %02d", show->number.season );
+                            }
+                        }
+                        break;
+
+                    case kHashEpisode:
+                        isDefined = ( show->number.episode != -1 );
+                        if (isDefined)
+                        {
+                            snprintf( param, sizeof(param), "%02d", show->number.episode );
+                        }
+                        break;
+
+                    case kHashExtension:
+                        isDefined = (show->extension != NULL);
+                        if (isDefined)
+                        {
+                            strncpy( param, show->extension, sizeof( param ) );
+                        }
+                        break;
+                    }
+                    if ( c != '?' )
+                    {
+                        // ether the trailing percent, or null terminator
+                        s = stpcpy( s, param );
+                    }
+                    else
+                    {  // trinary operator :)
+
+                        c = *t++;
+
+                        // if undefined, skip over 'true' pattern, find the ':' (or trailing '%')
+                        if ( !isDefined )
+                        {
+                            while (c != '\0' && c != ':' && c != '%')
+                            {
+                                c = *t++;
+                            }
+
+                            if ( c == ':' ) // did we find the 'false' clause?
+                            {
+                                c = *t++;  // yep, so swallow the colon or the next loop will immediately terminate
+                            }
+                        }
+
+                        while ( c != '\0' && c != ':' && c != '%' )
+                        {
+                            if ( c != '@' )
+                            {
+                                *s++ = c;
+                            }
+                            else
+                            {
+                                s = stpcpy( s, param );
+                            }
+                            c = *t++;
+                        }
+
+                        while ( c != '\0' && c != '%' )
+                        {
+                            c = *t++;
+                        }
+                    }
+                }
+                if ( c == '\0' )
+                    break;
+            }
+            c = *t++;
+        }
+
+        *s = '\0';
+
+        printf( "template = %s\n", template );
+        printf( "string = %s\n", result );
+    }
+    return result;
+}
 
 int main( int argc, char * argv[] )
 {
+    tShow show;
+    char season[32];
+    char SnnEnn[16];
+
+    // generateMapping();
+    for (int i = 1; i < argc; ++i )
+    {
+        memset( &show, 0, sizeof(show) );
+        show.number.season  = -1;
+        show.number.episode = -1;
+
+        parsePath( argv[i], &show );
+
+        season[0] = '\0';
+        SnnEnn[0] = '-';
+        SnnEnn[1] = '\0';
+
+        if (show.number.season != -1)
+        {
+            snprintf(season, sizeof(season), "Season %02d/", show.number.season );
+            if (show.number.episode != -1 )
+            {
+                snprintf( SnnEnn, sizeof(SnnEnn), "S%02dE%02d", show.number.season, show.number.episode );
+            }
+        }
+        if (show.title.series == NULL)
+            show.title.series = "(unknown)";
+        if (show.title.episode == NULL)
+            show.title.episode = "(unknown)";
+
+        printf( "%s/%s%s %s %s%s\n",
+            show.title.series, season, show.title.series, SnnEnn, show.title.episode, show.extension );
+        free( buildString( "\"%source%\" \"%series%/%seasonfolder?@/%%series% %season?S@%%episode?E@:-% %title%%extension%\"", &show ) );
+    }
     exit( 0 );
 }
