@@ -553,6 +553,8 @@ int main( int argc, char * argv[] )
         parsePath( argv[i] );
 
         free( buildString( "\"%source%\" \"%HOME?@/%%series%/%seasonfolder?@/%%series% %season?@x%%episode?@:-% %title%%extension%\"" ) );
+
+        freeParams();
     }
     exit( 0 );
 }
