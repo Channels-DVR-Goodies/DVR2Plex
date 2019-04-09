@@ -98,28 +98,65 @@ tCharClass hashChar[256] = {
     0xfc,               0xfd,               0xfe,               0xff
 };
 
-typedef struct
+typedef struct tParam {
+    struct tParam * next;
+    tHash           hash;
+    char *          value;
+} tParam;
+
+tParam * head = NULL;
+
+int addParam( tHash hash, char * value )
 {
-    char * directory;
-    char * basename;
-    char separator;
-    char * extension;
-    struct
+    int result = -1;
+
+    tParam * p = malloc( sizeof(tParam) );
+
+    if (p != NULL)
     {
-        char * series;
-        char * episode;
-    } title;
-    struct
+        p->hash  = hash;
+        p->value = value;
+
+        p->next = head;
+        head = p;
+
+        result = 0;
+    }
+    return result;
+}
+
+char * findValue( tHash hash )
+{
+    char * result = NULL;
+    tParam * p = head;
+
+    while (p != NULL)
     {
-        int season;
-        int episode;
-    } number;
-    struct {
-        struct tm firstAired;
-        struct tm recorded;
-    } date;
-    unsigned int year;
-} tShow;
+        if ( p->hash == hash )
+        {
+            result = p->value;
+            break;
+        }
+        p = p->next;
+    }
+    return result;
+}
+
+void freeParams( void )
+{
+    tParam * p;
+
+    p = head;
+    head = NULL;
+    while ( p != NULL )
+    {
+        tParam * next;
+
+        next = p->next;
+        free( p );
+        p = next;
+    }
+}
 
 void generateMapping(void)
 {
@@ -154,14 +191,24 @@ void generateMapping(void)
     }
 }
 
-#define kHashYear       0x0000000152354555  // (yyyy)
-#define kHashSnnEnn     0x00000003c7c0f9bd  // SnnEnn
-#define kHashSyyyyEnn   0x00001bb6ccda0fbd  // SyyyyEnn
-#define kHashOneDash    0x000000000000002d  // -
-#define kHashDate       0x0001d10a22859cbd  // yyyy-mm-dd
-#define kHashDateTime   0x61e28d729df2157d  // yyyy-mm-dd-hhmm
+/* patterns in the source */
+#define kHashYear           0x0000000152354555  // (yyyy)
+#define kHashSnnEnn         0x00000003c7c0f9bd  // SnnEnn
+#define kHashSyyyyEnn       0x00001bb6ccda0fbd  // SyyyyEnn
+#define kHashOneDash        0x000000000000002d  // -
+#define kHashDate           0x0001d10a22859cbd  // yyyy-mm-dd
+#define kHashDateTime       0x61e28d729df2157d  // yyyy-mm-dd-hhmm
 
-int parseName( char *name, tShow *show )
+/* keywords in the template */
+#define kHashSource         0x0000000416730735
+#define kHashSeries         0x00000003d1109b5f
+#define kHashEpisode        0x00000099d3300841
+#define kHashTitle          0x000000001857f9b5
+#define kHashSeason         0x000000043a32a26c
+#define kHashExtension      0x00045d732bb4c26c
+#define kHashSeasonFolder   0x26b2db9d04411e4c
+
+int parseName( char *name )
 {
     int histogram[256];
 
@@ -182,20 +229,16 @@ int parseName( char *name, tShow *show )
         sep = '_';
     if (histogram['-'] > histogram[sep])
         sep = '-';
-    show->separator = sep;
 
 
-    char *src = show->basename;
-    char *dest = strdup(src);
-    char *prevSep;
-    char *start;
+    char seenSeries = 0;
+
+    char *src = name;
+    char *dest = strdup( src ); // copy it, because we'll modify it as we go
+    char *start = dest;
+    char *prevSep = NULL;
     tHash hash = 0;
-    char  temp[50];
-    struct tm year;
 
-    start = dest;
-    prevSep = NULL;
-    hash = 0;
     unsigned char c;
     do {
         c = *src;
@@ -221,19 +264,23 @@ int parseName( char *name, tShow *show )
             case kHashOneDash:
             case kHashDate:
             case kHashDateTime:
-                // first terminate the previous run
                 if ( prevSep != NULL )
                 {
+                    // first store the run of whatever hasn't hashed to something we recognize
                     *prevSep = '\0';
                     fprintf( stdout, "prev: \'%s\'\n", start);
 
-                    if ( show->title.series == NULL )
-                        show->title.series = strdup(start);
+                    if (seenSeries)
+                        addParam( kHashTitle, start );
                     else
-                        show->title.episode = strdup(start);
+                    {
+                        addParam( kHashSeries, start );
+                        seenSeries = 1;
+                    }
 
                     // now point at the hash match, which is just past prevSep
                     start = &prevSep[1];
+                    addParam( hash, start );
                 }
                 prevSep = NULL;
                 break;
@@ -243,10 +290,13 @@ int parseName( char *name, tShow *show )
                 {
                     fprintf( stdout, "final: \'%s\'\n", start);
 
-                    if ( show->title.series == NULL )
-                        show->title.series = strdup(start);
+                    if (seenSeries)
+                        addParam( kHashTitle, start );
                     else
-                        show->title.episode = strdup(start);
+                    {
+                        addParam( kHashSeries, start );
+                        seenSeries = 1;
+                    }
                 }
                 else
                 {
@@ -260,22 +310,42 @@ int parseName( char *name, tShow *show )
             fwrite( start, dest - start, sizeof(char), stdout);
             fprintf( stdout, "\' = %016lx\n", hash );
 
+            unsigned int season  = 0;
+            unsigned int episode = 0;
+            struct tm firstAired;
+            struct tm dateRecorded;
+            struct tm year;
+            char  temp[50];
+
             switch (hash)
             {
             case kHashYear: // we found '(nnnn)'
                 printf( "(year) = %s\n", start );
                 memset( &year, 0, sizeof(year) );
-                strptime( start, "(%Y)", &year );
-                show->year = year.tm_year + 1900;
-                printf("year: %u\n", show->year);
+
                 start = &dest[1];
                 break;
 
             case kHashSnnEnn:   // we found 'SnnEnn'
             case kHashSyyyyEnn: // or 'SyyyyEnn'
                 printf("SnnEnn = %s\n", start);
-                sscanf( start, "%*c%u%*c%u", &show->number.season, &show->number.episode);
-                printf("season: %u, episode: %u\n", show->number.season, show->number.episode );
+                sscanf( start, "%*c%u%*c%u", &season, &episode );
+
+                snprintf( temp, sizeof(temp), "%02u", season );
+                addParam( kHashSeason, strdup( temp ) );
+                if ( season == 0 )
+                {
+                    addParam( kHashSeasonFolder, "Specials" );
+                }
+                else
+                {
+                    snprintf( temp, sizeof(temp), "Season %02u", season );
+                    addParam( kHashSeasonFolder, strdup( temp ) );
+                }
+
+                snprintf( temp, sizeof(temp), "%02u", episode );
+                addParam( kHashEpisode, strdup( temp ) );
+
                 start = &dest[1];
                 break;
 
@@ -286,16 +356,16 @@ int parseName( char *name, tShow *show )
 
             case kHashDate:
                 printf("yyyy-mm-dd = %s\n", start);
-                strptime( start, "%Y-%m-%d", &show->date.firstAired );
-                strftime( (char * restrict)temp, sizeof(temp), "%x", &show->date.firstAired );
+                strptime( start, "%Y-%m-%d", &firstAired );
+                strftime( (char * restrict)temp, sizeof(temp), "%x", &firstAired );
                 printf("first aired: %s\n", temp);
                 start = &dest[1];
                 break;
 
             case kHashDateTime:
                 printf("yyyy-mm-dd-hhmm = %s\n", start);
-                strptime( start, "%Y-%m-%d-%H%M", &show->date.recorded);
-                strftime( (char * restrict)temp, sizeof(temp), "%x %X", &show->date.recorded );
+                strptime( start, "%Y-%m-%d-%H%M", &dateRecorded);
+                strftime( (char * restrict)temp, sizeof(temp), "%x %X", &dateRecorded );
                 printf("recorded: %s\n", temp);
                 start = &dest[1];
                 break;
@@ -316,51 +386,34 @@ int parseName( char *name, tShow *show )
 /*
  * carve up the path into directory path, basename and extension
  */
-int parsePath( char *path, tShow *show )
+int parsePath( char *path )
 {
     int result = 0;
-    char *lastSlash = strrchr( path, '/' );
+
+    addParam( kHashSource, path );
+
     char *lastPeriod = strrchr( path, '.' );
-
-
-    if ( lastSlash != NULL )
-    {
-        ++lastSlash;
-        show->directory = strndup( path, lastSlash - path);
-        if (lastPeriod != NULL)
-        {
-            show->basename = strndup( lastSlash, lastPeriod - lastSlash );
-            show->extension = strndup( lastPeriod, NAME_MAX );
-        }
-        else
-        {
-            show->basename = strndup( lastSlash, NAME_MAX );
-            show->extension = strdup("");
-        }
+    if (lastPeriod != NULL) {
+        addParam( kHashExtension, strdup( lastPeriod ) );
     }
     else
     {
-      show->directory = strdup("./");
-      if (lastPeriod != NULL) {
-        show->basename = strndup(path, lastPeriod - path);
-        show->extension = strndup(lastPeriod, NAME_MAX);
-      } else {
-        show->basename = strndup(path, NAME_MAX);
-        show->extension = strdup("");
-      }
+        lastPeriod = path + strlen( path );
     }
 
-    parseName( show->basename, show);
+    char *lastSlash = strrchr( path, '/' );
+    if ( lastSlash != NULL )
+    {
+        ++lastSlash;
+    }
+    else
+    {
+        lastSlash = path; // no directories prefixed
+    }
 
-    printf("    directory = \'%s\'\n", show->directory );
-    printf("     basename = \'%s\'\n", show->basename );
-    printf("    separator = \'%c\'\n", show->separator );
-    printf("    extension = \'%s\'\n", show->extension );
-    printf(" series title = \'%s\'\n", show->title.series );
-    printf("       season = %d\n", show->number.season );
-    printf("      episode = %d\n", show->number.episode );
-    printf("episode title = \'%s\'\n", show->title.episode );
+    parseName( strndup( lastSlash, lastPeriod - lastSlash ) );
 
+    return result;
 }
 
 tHash hashString( unsigned char *s, unsigned char separator )
@@ -377,23 +430,14 @@ tHash hashString( unsigned char *s, unsigned char separator )
     return result;
 }
 
-#define kHashSource         0x0000000416730735
-#define kHashSeries         0x00000003d1109b5f
-#define kHashEpisode        0x00000099d3300841
-#define kHashTitle          0x000000001857f9b5
-#define kHashSeason         0x000000043a32a26c
-#define kHashExtension      0x00045d732bb4c26c
-#define kHashSeasonFolder   0x26b2db9d04411e4c
 
-char *buildString( const char *template, tShow *show )
+char *buildString( const char *template )
 {
     const char *t = template;
     char *result = NULL;
-    unsigned long hash;
-    char *s;
+    char *s;    // pointer into the returned string
     char c;
-    char param[512];
-    char isDefined;
+    const char * k; // beginning of keyword
 
     result = malloc(32768);
     s = result;
@@ -409,14 +453,17 @@ char *buildString( const char *template, tShow *show )
             }
             else
             {
+                k = t; // remember where the keyword starts
                 c = *t++;
-                if ( c == '%' )
+                 if ( c == '%' )
                 {
                     *s++ = '%';
                 }
                 else
                 {
-                    hash = 0;
+                    // scan the keyword and generate its hash
+                    unsigned long hash = 0;
+
                     while ( c != '\0' && c != '%' && c != '?')
                     {
                         if ( hashChar[ c ] != kNull ) /* we ignore some characters when calculating the hash */
@@ -425,75 +472,22 @@ char *buildString( const char *template, tShow *show )
                         }
                         c = *t++;
                     }
-                    param[0] = '\0';
-                    isDefined = 0;
-                    switch (hash)
+
+                    char * value = findValue( hash );
+
+                    if ( value == NULL )
                     {
-                    case kHashSource:
-                        isDefined = 1;
-                        snprintf( param, sizeof(param),
-                            "%s/%s%s", show->directory, show->basename, show->extension );
-                        break;
-
-                    case kHashSeries:
-                        isDefined = ( show->title.series != NULL );
-                        if (isDefined)
-                        {
-                            strncpy( param, show->title.series, sizeof(param) );
-                        }
-                        break;
-
-                    case kHashTitle:
-                        isDefined = ( show->title.episode != NULL );
-                        if (isDefined)
-                        {
-                            strncpy( param, show->title.episode, sizeof( param ) );
-                        }
-                        break;
-
-                    case kHashSeason:
-                        isDefined = ( show->number.season != -1 );
-                        if (isDefined)
-                        {
-                            snprintf( param, sizeof(param), "%02d", show->number.season );
-                        }
-                        break;
-
-                    case kHashSeasonFolder:
-                        isDefined = ( show->number.season != -1 );
-                        if (isDefined)
-                        {
-                            if ( show->number.season == 0 )
-                            {
-                                strncpy( param, "Specials", sizeof( param ) );
-                            }
-                            else
-                            {
-                                snprintf( param, sizeof( param ), "Season %02d", show->number.season );
-                            }
-                        }
-                        break;
-
-                    case kHashEpisode:
-                        isDefined = ( show->number.episode != -1 );
-                        if (isDefined)
-                        {
-                            snprintf( param, sizeof(param), "%02d", show->number.episode );
-                        }
-                        break;
-
-                    case kHashExtension:
-                        isDefined = (show->extension != NULL);
-                        if (isDefined)
-                        {
-                            strncpy( param, show->extension, sizeof( param ) );
-                        }
-                        break;
+                        // let's see if it's an environment variable
+                        char * envkey = strndup( k, t - k - 1 );
+                        value = getenv( envkey );
+                        printf("env=\"%s\", value=\"%s\"\n", envkey, value );
+                        free( envkey );
                     }
+
                     if ( c != '?' )
                     {
                         // ether the trailing percent, or null terminator
-                        s = stpcpy( s, param );
+                        s = stpcpy( s, value );
                     }
                     else
                     {  // trinary operator :)
@@ -501,7 +495,7 @@ char *buildString( const char *template, tShow *show )
                         c = *t++;
 
                         // if undefined, skip over 'true' pattern, find the ':' (or trailing '%')
-                        if ( !isDefined )
+                        if ( value == NULL )
                         {
                             while (c != '\0' && c != ':' && c != '%')
                             {
@@ -520,16 +514,20 @@ char *buildString( const char *template, tShow *show )
                             {
                                 *s++ = c;
                             }
-                            else
+                            else if ( value != NULL )
                             {
-                                s = stpcpy( s, param );
+                                s = stpcpy( s, value );
                             }
+
                             c = *t++;
                         }
 
-                        while ( c != '\0' && c != '%' )
+                        if ( c == ':' ) // skip over the 'false' clause
                         {
-                            c = *t++;
+                            while ( c != '\0' && c != '%' )
+                            {
+                                c = *t++;
+                            }
                         }
                     }
                 }
@@ -549,39 +547,12 @@ char *buildString( const char *template, tShow *show )
 
 int main( int argc, char * argv[] )
 {
-    tShow show;
-    char season[32];
-    char SnnEnn[16];
-
     // generateMapping();
     for (int i = 1; i < argc; ++i )
     {
-        memset( &show, 0, sizeof(show) );
-        show.number.season  = -1;
-        show.number.episode = -1;
+        parsePath( argv[i] );
 
-        parsePath( argv[i], &show );
-
-        season[0] = '\0';
-        SnnEnn[0] = '-';
-        SnnEnn[1] = '\0';
-
-        if (show.number.season != -1)
-        {
-            snprintf(season, sizeof(season), "Season %02d/", show.number.season );
-            if (show.number.episode != -1 )
-            {
-                snprintf( SnnEnn, sizeof(SnnEnn), "S%02dE%02d", show.number.season, show.number.episode );
-            }
-        }
-        if (show.title.series == NULL)
-            show.title.series = "(unknown)";
-        if (show.title.episode == NULL)
-            show.title.episode = "(unknown)";
-
-        printf( "%s/%s%s %s %s%s\n",
-            show.title.series, season, show.title.series, SnnEnn, show.title.episode, show.extension );
-        free( buildString( "\"%source%\" \"%series%/%seasonfolder?@/%%series% %season?S@%%episode?E@:-% %title%%extension%\"", &show ) );
+        free( buildString( "\"%source%\" \"%HOME?@/%%series%/%seasonfolder?@/%%series% %season?@x%%episode?@:-% %title%%extension%\"" ) );
     }
     exit( 0 );
 }
