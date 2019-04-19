@@ -195,7 +195,7 @@ the entire run. This is the dictionary populated from the config files
 and command line options. There is a 'file' dictionary, which contains
 the parsed value for the last source parsed. This is discarded and
 rebuilt for each source, so per-file values don't carry over from one
-source to the nest.
+source to the next.
 
 The third dictionary is the 'series' one, which is populated with hashes
 of the directory names that it finds by doing a scan of the {destination}
