@@ -9,12 +9,17 @@
 #include "chandvr2plex.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <limits.h>
+#include <sys/types.h>
 #include <string.h>
 #include <ctype.h>
-#include <limits.h>
 #include <time.h>
+#include <libgen.h> // for basename()
+#include <pwd.h>
 #define __USE_MISC  // dirent.d_type is linux-specific, apparently
 #include <dirent.h>
+#define __USE_GNU
+#include <unistd.h>
 
 #define DEBUG
 #ifndef DEBUG
@@ -26,32 +31,36 @@
 
 typedef enum
 {
-    kIgnore = 1, // do not start at zero - possible confusion with string termination
-    kNumber,
-    kSeperator,
-    kLBracket,
-    kRBracket
+    kIgnore   = ' ', // do not start at zero - possible confusion with string termination
+    kNumber   = '0',
+    kLBracket = '(',
+    kRBracket = ')'
 } tCharClass;
 
 typedef unsigned char byte;
 typedef unsigned long tHash;
 
-tCharClass hashCharMap[256] = {
+/*
+ * this hash table is used to generate hashes used to match patterns.
+ * it maps all digits to the same value, maps uppercase letters to
+ * lowercase, and ignores several characters completely.
+ */
+tCharClass hashPattern[256] = {
     '\0',               0x01,               0x02,               0x03,
     0x04,               0x05,               0x06,               0x07,
-    0x08,               0x09,               0x0a,               0x0b,
-    0x0c,               0x0d,               0x0e,               0x0f,
+    0x08,               0x09, /* TAB */     0x0a, /* LF */      0x0b,
+    0x0c,               0x0d, /* CR */      0x0e,               0x0f,
     0x10,               0x11,               0x12,               0x13,
     0x14,               0x15,               0x16,               0x17,
     0x18,               0x19,               0x1a,               0x1b,
     0x1c,               0x1d,               0x1e,               0x1f,
-    ' ',                kIgnore, /* ! */    '"',                '#',
-    '$',                '%',                '&',                kIgnore   /* ' */,
+    kIgnore, /* ' ' */  kIgnore, /* ! */    '"',                '#',
+    '$',                '%',                '&',                kIgnore, /* ' */
     '(',                ')',                '*',                '+',
-    ',',                '-',                '.',                '/',
-    kNumber /* 0 */,    kNumber /* 1 */,    kNumber /* 2 */,    kNumber /* 3 */,
-    kNumber /* 4 */,    kNumber /* 5 */,    kNumber /* 6 */,    kNumber /* 7 */,
-    kNumber /* 8 */,    kNumber /* 9 */,    ':',                ';',
+    ',',                '-',                kIgnore, /* . */    '/',
+    kNumber, /* 0 */    kNumber, /* 1 */    kNumber, /* 2 */    kNumber, /* 3 */
+    kNumber, /* 4 */    kNumber, /* 5 */    kNumber, /* 6 */    kNumber, /* 7 */
+    kNumber, /* 8 */    kNumber, /* 9 */    ':',                ';',
     '<',                '=',                '>',                kIgnore, /* ? */
     '@',                'a',                'b',                'c',    /* map uppercase to lowercase */
     'd',                'e',                'f',                'g',
@@ -60,7 +69,7 @@ tCharClass hashCharMap[256] = {
     'p',                'q',                'r',                's',
     't',                'u',                'v',                'w',
     'x',                'y',                'z',                '[',
-    '\\',               ']',                '^',                '_',
+    '\\',               ']',                '^',                kIgnore, /* _ */
     '`',                'a',                'b',                'c',
     'd',                'e',                'f',                'g',
     'h',                'i',                'j',                'k',
@@ -104,7 +113,9 @@ tCharClass hashCharMap[256] = {
 };
 
 /*
- * period is ignored, because it's often omitted at the end of series like 'S.W.A.T.'
+ * This hash table is used for series, and parameter names.
+ *
+ * Period is ignored, because the last one is often omitted of series like 'S.W.A.T.'
  * and 'Marvel's Agents of S.H.I.E.L.D.'. By ignoring it, 'S.W.A.T.', 'S.W.A.T' and
  * 'SWAT' will all result in the same hash value.
  *
@@ -123,20 +134,20 @@ tCharClass hashCharMap[256] = {
  *
  * ':' is usually converted to '-' or omitted entirely, so ignore those, too.
  *
- * Left and right brackets are also mapped to be equivalent, e.g. [2017] is the
- * hashed the same as (2017).
+ * Left and right brackets are also mapped to be equivalent, e.g. [2017] has the
+ * same hash as (2017).
  */
-tCharClass hashSeriesMap[256] = {
+tCharClass hashKey[256] = {
     '\0',               0x01,               0x02,               0x03,
     0x04,               0x05,               0x06,               0x07,
-    0x08,               0x09,               0x0a,               0x0b,
-    0x0c,               0x0d,               0x0e,               0x0f,
+    0x08,               kIgnore, /* TAB */  kIgnore, /* LF */   0x0b,
+    0x0c,               kIgnore, /* CR */   0x0e,               0x0f,
     0x10,               0x11,               0x12,               0x13,
     0x14,               0x15,               0x16,               0x17,
     0x18,               0x19,               0x1a,               0x1b,
     0x1c,               0x1d,               0x1e,               0x1f,
     kIgnore, /* ' ' */  kIgnore, /* ! */    '"',                '#',
-    '$',                '%',                '&',                kIgnore   /* ' */,
+    '$',                '%',                '&',                kIgnore,   /* ' */
     kLBracket, /* ( */  kRBracket, /* ) */  '*',                '+',
     ',',                kIgnore, /* - */    kIgnore, /* . */    '/',
     '0',                '1',                '2',                '3',
@@ -149,8 +160,8 @@ tCharClass hashSeriesMap[256] = {
     'l',                'm',                'n',                'o',
     'p',                'q',                'r',                's',
     't',                'u',                'v',                'w',
-    'x',                'y',                'z',                kLBracket,  /* [ */
-    '\\',               kRBracket, /* ] */  '^',                kIgnore,    /* _ */
+    'x',                'y',                'z',                kLBracket, /* [ */
+    '\\',               kRBracket, /* ] */  '^',                kIgnore,   /* _ */
     '`',                'a',                'b',                'c',
     'd',                'e',                'f',                'g',
     'h',                'i',                'j',                'k',
@@ -199,16 +210,17 @@ typedef struct tParam {
     char *          value;
 } tParam;
 
-
 typedef struct {
     tParam * head;
+    const char * name;
 } tDictionary;
 
 
-
-tDictionary * createDictionary( void )
+tDictionary * createDictionary( const char * name )
 {
-    return (tDictionary *)calloc( 1, sizeof(tDictionary) );
+    tDictionary * result = (tDictionary *)calloc( 1, sizeof(tDictionary) );
+    result->name = name;
+    return result;
 }
 
 void destroyDictionary( tDictionary * dictionary )
@@ -234,6 +246,8 @@ void printDictionary( tDictionary * dictionary )
 {
     if ( dictionary != NULL )
     {
+        debugf( "...%s dictionary...\n", dictionary->name);
+
         tParam * p = dictionary->head;
         while ( p != NULL )
         {
@@ -279,7 +293,7 @@ char * findValue( tDictionary * dictionary, tHash hash )
     return result;
 }
 
-
+#if 0
 void generateMapping( void )
 {
     for ( unsigned int i = 0; i < 256; ++i )
@@ -311,6 +325,7 @@ void generateMapping( void )
         printf("%c", (i%4 == 3)? '\n': '\t');
     }
 }
+#endif
 
 /* patterns in the source */
 /*
@@ -322,32 +337,32 @@ void generateMapping( void )
  * nnnn-nn-nn
  * nnnn-nn-nn-nnnn
  */
-#define kHashSnnEnn         0x00000003c7a2664a  // SnnEnn
-#define kHashSyyyyEnn       0x00001bb91564fb4a  // SyyyyEnn
-#define kHashSnnEn          0x0000000016b931ac  // SnnEn
-#define kHashSnEnn          0x0000000016c43aaa  // SnEnn
-#define kHashSnEn           0x000000000084789c  // SnEn
-#define kHashnXnn           0x000000000005efba  // nXnn
-#define kHashnnXnn          0x000000000070e7ba  // nnXnn
-#define kHashOneDash        0x000000000000002d  // -
-#define kHashDate           0x0001d10a22859cbd  // yyyy-mm-dd
-#define kHashDateTime       0x61e28d729df2157d  // yyyy-mm-dd-hhmm
+#define kPattern_SnnEnn     0x00000003f9b381c4  // SnnEnn
+#define kPattern_SyyyyEnn   0x00001ccd9c944b04  // SyyyyEnn
+#define kPattern_SnnEn      0x00000000176a4622  // SnnEn
+#define kPattern_SnEnn      0x00000000176e12d4  // SnEnn
+#define kPattern_SnEn       0x00000000008e24fa  // SnEn
+#define kPattern_nXnn       0x0000000000410fb0  // nXnn
+#define kPattern_nnXnn      0x0000000009e517b0  // nnXnn
+#define kPattern_OneDash    0x000000000000002d  // -
+#define kPattern_Date       0x0055006b8132df24  // yyyy-mm-dd
+#define kPattern_DateTime   0x20ef704b1d973420  // yyyy-mm-dd-hhmm
 
 /* keywords in the template */
-#define kHashDestination    0x1f8c5d6e23059b0c
-#define kHashTemplate       0x00001c70c5df6271
-#define kHashSource         0x0000000416730735
-#define kHashPath           0x00000000008bc56c
-#define kHashBasename       0x00001770bd72d401
-#define kHashSeries         0x00000003d1109b5f
-#define kHashEpisode        0x00000099d3300841
-#define kHashTitle          0x000000001857f9b5
-#define kHashSeason         0x000000043a32a26c
-#define kHashExtension      0x00045d732bb4c26c
-#define kHashSeasonFolder   0x26b2db9d04411e4c
-#define kHashDestSeries     0x00b9cdb100649b5f
-#define kHashFirstAired     0x00b3fed4e2899d3e
-#define kHashDateRecorded   0x46b649d0032996fe
+#define kKeyBasename        0x00001770bd72d401
+#define kKeyDateRecorded    0x46b649d0032996fe
+#define kKeyDestination     0x1f8c5d6e23059b0c
+#define kKeyDestSeries      0x00b9cdb100649b5f
+#define kKeyEpisode         0x00000099d3300841
+#define kKeyExtension       0x00045d732bb4c26c
+#define kKeyFirstAired      0x00b3fed4e2899d3e
+#define kKeyPath            0x00000000008bc56c
+#define kKeySeason          0x000000043a32a26c
+#define kKeySeasonFolder    0x26b2db9d04411e4c
+#define kKeySeries          0x00000003d1109b5f
+#define kKeySource          0x0000000416730735
+#define kKeyTemplate        0x00001c70c5df6271
+#define kKeyTitle           0x000000001857f9b5
 
 #if 0
 /*
@@ -424,9 +439,8 @@ int seriesIsWhitelisted( tHash hash )
 #endif
 
 
-
 /*
- * this uses the 'series' hash table, since comparing series
+ * this uses the 'key' hash table, since comparing series
  * names needs different logic than scanning for patterns.
  * Separators (spaces, periods, underscores) are ignored
  * completely. As are \', !, amd ?, since those are
@@ -439,7 +453,7 @@ void addSeries( tDictionary * dictionary, char * series )
 {
     tHash result = 0;
     unsigned char *s = (unsigned char *) series;
-    unsigned char  c = hashSeriesMap[ *s++ ];
+    unsigned char  c = hashKey[ *s++ ];
 
     while ( c != '\0' )
     {
@@ -474,7 +488,7 @@ void addSeries( tDictionary * dictionary, char * series )
             }
             break;
         }
-        c = hashSeriesMap[ *s++ ];
+        c = hashKey[ *s++ ];
     }
 
     // also add the hash of the full string, including any trailing bracketed stuff
@@ -487,7 +501,7 @@ static int scanDirFilter( const struct dirent * entry)
 
     result = ( entry->d_name[0] != '.' && entry->d_type == DT_DIR );
 
-    debugf( "%s, 0x%x, %d\n", entry->d_name, entry->d_type, result );
+    // debugf( "%s, 0x%x, %d\n", entry->d_name, entry->d_type, result );
     return result;
 }
 
@@ -509,7 +523,6 @@ int buildSeriesDictionary( tDictionary * dictionary, char *path )
     }
     free(namelist);
 
-    fprintf(stderr, "series dictionary\n");
     printDictionary( dictionary );
 
     return 0;
@@ -520,7 +533,7 @@ char * lookupSeries( tDictionary * dictionary, char * series )
     char * result = NULL;
     tHash hash = 0;
     unsigned char *s = (unsigned char *) series;
-    unsigned char  c = hashSeriesMap[ *s++ ];
+    unsigned char  c = hashKey[ *s++ ];
 
 
     while ( c != '\0' )
@@ -556,7 +569,7 @@ char * lookupSeries( tDictionary * dictionary, char * series )
             }
             break;
         }
-        c = hashSeriesMap[ *s++ ];
+        c = hashKey[ *s++ ];
     }
 
     debugf( "checking: %016lx\n", hash);
@@ -572,19 +585,19 @@ void addSeasonEpisode( tDictionary * dictionary, unsigned int season, unsigned i
     char  temp[50];
 
     snprintf( temp, sizeof(temp), "%02u", season );
-    addParam( dictionary, kHashSeason, temp );
+    addParam( dictionary, kKeySeason, temp );
     if ( season == 0 )
     {
-        addParam( dictionary, kHashSeasonFolder, "Specials" );
+        addParam( dictionary, kKeySeasonFolder, "Specials" );
     }
     else
     {
         snprintf( temp, sizeof(temp), "Season %02u", season );
-        addParam( dictionary, kHashSeasonFolder, temp );
+        addParam( dictionary, kKeySeasonFolder, temp );
     }
 
     snprintf( temp, sizeof(temp), "%02u", episode );
-    addParam( dictionary, kHashEpisode, temp );
+    addParam( dictionary, kKeyEpisode, temp );
 }
 
 int storeParam( tDictionary *dictionary, tHash hash, char * value )
@@ -597,48 +610,48 @@ int storeParam( tDictionary *dictionary, tHash hash, char * value )
 
     switch (hash)
     {
-    case kHashSnnEnn:   // we found 'SnnEnn' or
-    case kHashSyyyyEnn: // SyyyyEnnn
-    case kHashSnnEn:    // SnnEn
-    case kHashSnEnn:    // SnEnn
-    case kHashSnEn:     // SnEn
+    case kPattern_SnnEnn:   // we found 'SnnEnn' or
+    case kPattern_SyyyyEnn: // SyyyyEnnn
+    case kPattern_SnnEn:    // SnnEn
+    case kPattern_SnEnn:    // SnEnn
+    case kPattern_SnEn:     // SnEn
         debugf("SnnEnn = %s\n", value);
         sscanf( value, "%*1c%u%*1c%u", &season, &episode ); // ignore characters since we don't know their case
         addSeasonEpisode( dictionary, season, episode );
         break;
 
-    case kHashnXnn:
-    case kHashnnXnn:
+    case kPattern_nXnn:
+    case kPattern_nnXnn:
         debugf("nnXnn = %s\n", value);
         sscanf( value, "%u%*1c%u", &season, &episode ); // ignore characters since we don't know their case
         addSeasonEpisode( dictionary, season, episode );
         break;
 
-    case kHashOneDash:
+    case kPattern_OneDash:
         // debugf("one dash = %s\n", value);
         break;
 
-    case kHashDate:
+    case kPattern_Date:
         debugf("yyyy-mm-dd = %s\n", value);
 #if 1
-        addParam( dictionary, kHashFirstAired, value );
+        addParam( dictionary, kKeyFirstAired, value );
 #else
         strptime( value, "%Y-%m-%d", &firstAired );
         strftime( (char * restrict)temp, sizeof(temp), "%x", &firstAired );
         debugf("first aired: %s\n", temp);
-        addParam( dictionary, kHashFirstAired, temp );
+        addParam( dictionary, kKeyFirstAired, temp );
 #endif
         break;
 
-    case kHashDateTime:
+    case kPattern_DateTime:
         debugf("yyyy-mm-dd-hhmm = %s\n", value);
 #if 1
-        addParam( dictionary, kHashDateRecorded, value );
+        addParam( dictionary, kKeyDateRecorded, value );
 #else
         strptime( value, "%Y-%m-%d-%H%M", &dateRecorded);
                 strftime( (char * restrict)temp, sizeof(temp), "%x %X", &dateRecorded );
                 debugf("recorded: %s\n", temp);
-                addParam( dictionary, kHashDateRecorded, temp );
+                addParam( dictionary, kKeyDateRecorded, temp );
 #endif
         break;
 
@@ -686,9 +699,9 @@ int parseName( tDictionary *dictionary, char *name )
             if ( c != sep && c != '\0' )
             {
                 // calculate the hash character-by-character
-                if ( hashCharMap[ c ] != kIgnore ) /* we ignore some characters when calculating the hash */
+                if ( hashPattern[ c ] != kIgnore ) /* we ignore some characters when calculating the hash */
                 {
-                    hash ^= hash * 43 + hashCharMap[ c ];
+                    hash ^= hash * 43 + hashPattern[ c ];
                 }
             }
             else // we reached a separator, or the end of the string
@@ -701,16 +714,16 @@ int parseName( tDictionary *dictionary, char *name )
                 switch (hash)
                 {
                     // hashes of the patterns we're looking for.
-                case kHashSnnEnn:   // SnnEnn
-                case kHashSyyyyEnn: // SnnnnEnn
-                case kHashSnnEn:    // SnnEn
-                case kHashSnEnn:    // SnEnn
-                case kHashSnEn:     // SnEn
-                case kHashnXnn:     // nXnn
-                case kHashnnXnn:    // nnXnn
-                case kHashOneDash:  // -
-                case kHashDate:     // yyyy-mm-dd
-                case kHashDateTime: // yyyy-mm-dd-hhmm
+                case kPattern_SnnEnn:   // SnnEnn
+                case kPattern_SyyyyEnn: // SnnnnEnn
+                case kPattern_SnnEn:    // SnnEn
+                case kPattern_SnEnn:    // SnEnn
+                case kPattern_SnEn:     // SnEn
+                case kPattern_nXnn:     // nXnn
+                case kPattern_nnXnn:    // nnXnn
+                case kPattern_OneDash:  // -
+                case kPattern_Date:     // yyyy-mm-dd
+                case kPattern_DateTime: // yyyy-mm-dd-hhmm
                     if ( prevSep != NULL )
                     {
                         // first store the run of unmatched tokens into a param
@@ -719,12 +732,12 @@ int parseName( tDictionary *dictionary, char *name )
                         if (seenSeries)
                         { // second (and subsequent) unmatched runs are assumed to be episode title
                             debugf( "store title: \'%s\'\n", start );
-                            addParam( dictionary, kHashTitle, start );
+                            addParam( dictionary, kKeyTitle, start );
                         }
                         else
                         { // first unmatched run is presumed to be the series
                             debugf( "store series: \'%s\'\n", start );
-                            addParam( dictionary, kHashSeries, start );
+                            addParam( dictionary, kKeySeries, start );
                             seenSeries = 1;
                         }
 
@@ -744,12 +757,12 @@ int parseName( tDictionary *dictionary, char *name )
                         if (seenSeries)
                         { // second (and subsequent) unmatched runs are assumed to be episode title
                             debugf( "store title 0: \'%s\'\n", start );
-                            addParam( dictionary, kHashTitle, start );
+                            addParam( dictionary, kKeyTitle, start );
                         }
                         else
                         { // first unmatched run is presumed to be the series
                             debugf( "store series 0: \'%s\'\n", start );
-                            addParam( dictionary, kHashSeries, start );
+                            addParam( dictionary, kKeySeries, start );
                             seenSeries = 1;
                         }
                     }
@@ -780,11 +793,11 @@ int parsePath( tDictionary *dictionary, char *path )
 {
     int result = 0;
 
-    addParam( dictionary, kHashSource, path );
+    addParam( dictionary, kKeySource, path );
 
     char *lastPeriod = strrchr( path, '.' );
     if ( lastPeriod != NULL ) {
-        addParam( dictionary, kHashExtension, lastPeriod );
+        addParam( dictionary, kKeyExtension, lastPeriod );
     }
     else
     {
@@ -795,7 +808,7 @@ int parsePath( tDictionary *dictionary, char *path )
     if ( lastSlash != NULL )
     {
         char *p = strndup( path, lastSlash - path );
-        addParam( dictionary, kHashPath, p );
+        addParam( dictionary, kKeyPath, p );
         free( p );
 
         ++lastSlash;
@@ -806,7 +819,7 @@ int parsePath( tDictionary *dictionary, char *path )
     }
 
     char *basename = strndup( lastSlash, lastPeriod - lastSlash );
-    addParam( dictionary, kHashBasename, basename );
+    addParam( dictionary, kKeyBasename, basename );
     parseName( dictionary, basename );
     free( basename );
 
@@ -834,7 +847,6 @@ char *buildString( tDictionary *mainDict, tDictionary *fileDict, char *template 
             {
             case '{':   // start of keyword
                     k = t; // remember where the keyword starts
-                    debugf( "[%s]\n", k );
                     c = *t++;
 
                     // scan the keyword and generate its hash
@@ -842,14 +854,18 @@ char *buildString( tDictionary *mainDict, tDictionary *fileDict, char *template 
 
                     while ( c != '\0' && c != '}' && c != '?' )
                     {
-                        if ( hashCharMap[ c ] != kIgnore ) /* we ignore some characters when calculating the hash */
+                        if ( hashKey[ c ] != kIgnore ) /* we ignore some characters when calculating the hash */
                         {
-                            hash ^= hash * 43 + hashCharMap[ c ];
+                            hash ^= hash * 43 + hashKey[ c ];
                         }
                         c = *t++;
                     }
 
-                    if ( hash != kHashTemplate ) // don't want to expand a {template} keyword in a template
+                    char * tmpStr = strndup( k, t - k - 1 );
+                    debugf( "key \'%s\' = 0x%016lx\n", tmpStr, hash );
+                    free( tmpStr );
+
+                    if ( hash != kKeyTemplate ) // don't want to expand a {template} keyword in a template
                     {
                         char * value = findValue( fileDict, hash );
 
@@ -947,19 +963,169 @@ char *buildString( tDictionary *mainDict, tDictionary *fileDict, char *template 
     return result;
 }
 
-int main( int argc, char * argv[] )
+int parseConfigFile( tDictionary * dictionary, char * path )
 {
     int result = 0;
-    int cnt = argc;
-    char *configPath = NULL;
+    FILE *file;
+    char * buffer = malloc( 4096 ); // 4K seems like plenty
 
-    tDictionary * mainDict = createDictionary();
+    debugf("config file: \"%s\"\n", path );
+    file = fopen( path, "r" );
+    if (file == NULL)
+    {
+        fprintf( stderr, "### Error: Unable to open config file \'%s\': ", path );
+        perror( NULL );
+        return -5;
+    }
+    else
+    {
+        while ( fgets( buffer, 4096, file ) != NULL )
+        {
+            debugf( "line: [%s]\n", buffer );
+
+            tHash hash = 0;
+            char * s = buffer;
+            unsigned char c = (unsigned char)*s++;
+            while ( c != '\0' && c != '=' )
+            {
+                if ( c != kIgnore )
+                {
+                    hash ^= hash * 43 + hashKey[ c ];
+                }
+                c = (unsigned char)*s++;
+            }
+
+            if (c == '=')
+            {
+                // trim whitespace from the beginning of the value
+                while ( isspace(*s) )
+                    s++;
+
+                char * e = s;
+                char * p = s;
+                while ( *p != '\0' )
+                {
+                    if ( !isspace( *p ) )
+                    {
+                        e = p; // remember the location of the most recent non-whitespace character we've seen
+                    }
+                    p++;
+                }
+                // e should now point at the last non-whitespace character in the string
+                e[1] = '\0'; // trim off any trailing whitespace at the end of the string - including the LF
+
+            }
+            debugf( "hash = 0x%016lx, value = \'%s\'\n", hash, s );
+            addParam( dictionary, hash, s );
+        }
+        free( buffer );
+        fclose( file );
+    }
+    return result;
+}
+
+/*
+ * look for config files to process. First, look in /etc/<argv[0]>.conf then in ~/.config/<argv[0]>.conf,
+ * and finally the file passed as a -c parameter, if any, then any parameters on the command line (except -c)
+ * Where a parameter occurs more than once in a dictionary, the most recent definition 'wins'
+ */
+
+int parseConfig( tDictionary * dictionary, char * path, char *myName )
+{
+    int result = 0;
+    char temp[PATH_MAX];
+
+    snprintf( temp, sizeof( temp ), "/etc/%s.conf", myName );
+    debugf( "/etc path: %s\n", temp );
+    if ( eaccess( temp, R_OK ) == 0 ) // only attempt to parse it if there's something there
+    {
+        result = parseConfigFile( dictionary, temp );
+    }
+
+    if ( result == 0 )
+    {
+        const char * home = getenv("HOME");
+        if ( home == NULL)
+        {
+            home = getpwuid(getuid())->pw_dir;
+        }
+        if ( home != NULL )
+        {
+            snprintf( temp, sizeof( temp ), "%s/.config/%s.conf", home, myName );
+            debugf( "~ path: %s\n", temp );
+
+            if ( eaccess( temp, R_OK ) == 0 )   // only attempt to parse it if there's something there
+            {
+                result = parseConfigFile( dictionary, temp );
+            }
+        }
+    }
+
+    if ( result == 0 )
+    {
+        if ( eaccess( path, R_OK ) == 0 )  // only attempt to parse it if there's something there
+        {
+            debugf( "-c path: %s\n", path );
+            result = parseConfigFile( dictionary, path );
+        } else
+        {
+            fprintf( stderr, "### Error: Unable to read config file \'%s\': ", path );
+            perror( NULL );
+            result = -5;
+        }
+    }
+
+    return result;
+}
+
+int main( int argc, char * argv[] )
+{
+    int  result       = 0;
+    int  cnt          = argc;
+    char * configPath = NULL;
+
+    tDictionary * mainDict = createDictionary( "Main" );
+
+    char * myName = basename( strdup( argv[0] ) ); // posix flavor of basename modifies its argument
 
     int i = 1;
     int k = 1;
     while ( i < argc && result == 0 )
     {
-        debugf( "i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
+        debugf( "1: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[ i ] );
+
+        // is it the config file option?
+        if ( strcmp( argv[ i ], "-c" ) == 0 )
+        {
+            cnt -= 2;
+            ++i;
+            configPath = strdup( argv[ i ] );   // make a copy - argv will be modified
+        }
+        else
+        {
+            if ( i != k )
+            {
+                argv[ k ] = argv[ i ];
+            }
+            ++k;
+        }
+        ++i;
+    }
+    argc = cnt;
+
+    result = parseConfig( mainDict, configPath, myName );
+
+    if ( configPath != NULL )
+    {
+        free( configPath );
+        configPath = NULL;
+    }
+
+    i = 1;
+    k = 1;
+    while ( i < argc && result == 0 )
+    {
+        debugf( "2: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
 
         // is it an option?
         if (argv[i][0] == '-' )
@@ -977,20 +1143,17 @@ int main( int argc, char * argv[] )
 
                 switch ( option )
                 {
-                case 'c':   // config file
-                    // swallow the option, we'll swallow the argument at the bottom of the switch
-                    --cnt;
-                    configPath = argv[ i ];
-                    break;
+                // case 'c':   // config file already handled
+                //  break;
 
                 case 'd':   // destination
                     --cnt;
-                    addParam( mainDict, kHashDestination, argv[ i ] );
+                    addParam( mainDict, kKeyDestination, argv[ i ] );
                     break;
 
                 case 't':   // template
                     --cnt;
-                    addParam( mainDict, kHashTemplate, argv[ i ] );
+                    addParam( mainDict, kKeyTemplate, argv[ i ] );
                     break;
 
                 default:
@@ -1012,17 +1175,14 @@ int main( int argc, char * argv[] )
         }
         ++i;
     }
+    argc = cnt;
 
-    debugf( "config path = \'%s\'\n", configPath );
-
-    /* ToDo: parse config file */
-
-    fprintf( stderr, "main dictionary\n");
     printDictionary( mainDict );
 
-    tDictionary *destSeriesDict = createDictionary();
 
-    char * destination = findValue( mainDict, kHashDestination );
+    tDictionary *destSeriesDict = createDictionary( "Series" );
+
+    char * destination = findValue( mainDict, kKeyDestination );
 
     if ( destination == NULL )
     {
@@ -1037,7 +1197,7 @@ int main( int argc, char * argv[] )
     }
 
 
-    char * template = findValue( mainDict, kHashTemplate );
+    char * template = findValue( mainDict, kKeyTemplate );
     if ( template == NULL )
     {
         fprintf( stderr, "### Error: no template defined.\n" );
@@ -1048,25 +1208,24 @@ int main( int argc, char * argv[] )
         debugf( "template = \'%s\'\n", template );
 
 
-        for ( int i = 1; i < cnt && result == 0; ++i )
+        for ( int i = 1; i < argc && result == 0; ++i )
         {
-            tDictionary *fileDict = createDictionary();
+            tDictionary *fileDict = createDictionary( "File" );
 
             debugf( "%d: \'%s\'\n", i, argv[ i ] );
 
             parsePath( fileDict, argv[ i ] );
 
-            char * series = findValue( fileDict, kHashSeries );
+            char * series = findValue( fileDict, kKeySeries );
             if ( series != NULL )
             {
                 char * destSeries = lookupSeries( destSeriesDict, series );
                 if ( destSeries != NULL )
                 {
-                    addParam( fileDict, kHashDestSeries, destSeries );
+                    addParam( fileDict, kKeyDestSeries, destSeries );
                 }
             }
 
-            fprintf( stderr, "file dictionary\n");
             printDictionary( fileDict );
 
             char * string = buildString( mainDict, fileDict, template );
