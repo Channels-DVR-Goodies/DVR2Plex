@@ -122,11 +122,11 @@ So assuming that the source file was
 and a directory existed called `/home/video/TV/Person of Interest (2011)`
 then that template would output:
  
- `"/home/Channels/TV/Person of Interest/Person of Interest S02E16 2013-02-21 Relevance 2018-12-30-0000.mpg" "/home/video/TV/Person of Interest (2011)/Season 02/Person of Interest (2011) S02E16 Relevence.mpg`
+ `"/home/Channels/TV/Person of Interest/Person of Interest S02E16 2013-02-21 Relevance 2018-12-30-0000.mpg" "/home/video/TV/Person of Interest (2011)/Season 02/Person of Interest (2011) S02E16 Relevence.mpg"`
  
  but perhaps more impressive is that a source file of `/home/paul/downloads/person.of.interest.2x16.relevence.mpg`
   would also create the same destination of 
-  `"/home/video/TV/Person of Interest (2011)/Season 02/Person of Interest (2011) S02E16 Relevence.mpg`
+  `"/home/video/TV/Person of Interest (2011)/Season 02/Person of Interest (2011) S02E16 Relevence.mpg"`
   
 The matching algorithm is not phased by differing case, missing
 apostrophes, presence or absence of a year or country (e.g.
@@ -134,7 +134,7 @@ apostrophes, presence or absence of a year or country (e.g.
 the destination.
 
 This is particularly useful for the worst offenders. For example, I have
-a destination folder called "Marvel's Agents of S.H.I.L.D. (2013)". The
+a destination folder called "Marvel's Agents of S.H.I.E.L.D. (2013)". The
 fuzzy matching can deal with something in the source like
 "marvels.agents.of.shield" and still put it in the correct folder.
 
