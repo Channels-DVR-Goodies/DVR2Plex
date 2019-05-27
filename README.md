@@ -49,7 +49,7 @@ commonly see, like "Marvel's Agents of S.H.I.E.L.D. (2013)", or
 all the way to "marvels.agents.of.shield". You find that you quickly
 build up a number of 'alternate' directories containing episodes of
 the same series - often duplicates (particularly if you have more than
-one source of recordings as I do - TiVo/kmttg, and Channels DVR)
+one source of recordings, as I do)
 
 Not good. This is the itch this tool scratches.
 

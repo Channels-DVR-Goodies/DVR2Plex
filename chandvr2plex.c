@@ -1,7 +1,8 @@
-//
-// Created by Paul on 4/4/2019.
-//
-// ToDo: switch to UTF-8 string handling, rather than relying on ASCII backwards-compatibility
+/**
+   Copyright &copy; Paul Chambers, 2019.
+
+   @ToDo Switch to UTF-8 string handling, rather than relying on ASCII backwards-compatibility
+*/
 
 #define _XOPEN_SOURCE 700
 #include <features.h>
@@ -21,13 +22,7 @@
 #define __USE_GNU
 #include <unistd.h>
 
-#define DEBUG
-#ifndef DEBUG
-  #define debugf( format, ... )
-#else
-  #define debugf( format, ... ) fprintf( stderr, format, __VA_ARGS__ )
-#endif
-
+#include "chandvr2plex.h"
 
 typedef enum
 {
@@ -37,7 +32,6 @@ typedef enum
     kRBracket = ')'
 } tCharClass;
 
-typedef unsigned char byte;
 typedef unsigned long tHash;
 
 /*
@@ -215,6 +209,21 @@ typedef struct {
     const char * name;
 } tDictionary;
 
+/**
+ * trim any trailing whitespace from the end of the string
+ *
+ * @param line
+ */
+void trimTrailingWhitespace(char *line)
+{
+    char * t = line;
+
+    while (*t != '\0') { t++; }
+    t--;
+    while (t > line && isspace(*t)) { t--; }
+    t++;
+    *t = '\0';
+}
 
 tDictionary * createDictionary( const char * name )
 {
@@ -363,80 +372,9 @@ void generateMapping( void )
 #define kKeySource          0x0000000416730735
 #define kKeyTemplate        0x00001c70c5df6271
 #define kKeyTitle           0x000000001857f9b5
-
-#if 0
-/*
- * this gives a list of hashes where a year is part of the series name.
- * the heuristics can't get this right 100% of the time
- */
-
-struct {
-    tHash   hash;
-} seriesWhitelist[] =
-    {
-        { 0x1 },    // 1066: A Year to Conquer England
-        { 0x1 },    // 1066: The Battle for Middle Earth
-        { 0x1 },    // 1776
-        { 0x1 },    // 1906
-        { 0x1 },    // 1922
-        { 0x1 },    // 1922
-        { 0x1 },    // 1942: A Love Story
-        { 0x1 },    // 1945
-        { 0x1 },    // 1968
-        { 0x1 },    // 1969
-        { 0x1 },    // 1984
-        { 0x1 },    // 1990: The Bronx Warriors
-        { 0x1 },    // 1999
-        { 0x1 },    // 2001
-        { 0x1 },    // 2001: a space odyssey
-        { 0x1 },    // 2001: A Space Travesty
-        { 0x1 },    // 2009: Lost Memories
-        { 0x1 },    // 2010
-        { 0x1 },    // 2010: Moby Dick
-        { 0x1 },    // 2010: the Year we make contact
-        { 0x1 },    // 2012
-        { 0x1 },    // 2012: Ice Age
-        { 0x1 },    // 2012: Supernova
-        { 0x1 },    // 2019: After the Fall of New York
-        { 0x1 },    // 2036 Origin Unknown
-        { 0x1 },    // 2054
-        { 0x1 },    // 2081
-        { 0x1 },    // Airport 1975
-        { 0x1 },    // Amityville 1992: It's About Time
-        { 0x1 },    // Back to 1942
-        { 0x1 },    // Blade Runner 2049
-        { 0x1 },    // Camille Claudel 1915
-        { 0x1 },    // Class of 1984
-        { 0x1 },    // Class of 1999
-        { 0x1 },    // Death Race 2000
-        { 0x1 },    // Death Race 2050
-        { 0x1 },    // Le Mans 1955
-        { 0x1 },    // Love Story 2050
-        { 0x1 },    // Nico, 1988
-        { 0x1 },    // Prime Suspect 1973
-        { 0x1 },    // Spring 1941
-        { 0x1 },    // Summer 1993
-        { 0x1 },    // Swing Parade of 1946
-        { 0x1 },    // Systrar 1968
-        { 0x1 },    // The Big Broadcast of 1938
-        { 0x1 },    // Veronica 2030
-        { 0 }       // <end of list>
-    };
-
-int seriesIsWhitelisted( tHash hash )
-{
-    tHash * h = seriesWhitelist[0].hash;
-
-    for ( unsigned int i; seriesWhitelist[i] != 0; ++i )
-    {
-        if ( seriesWhitelist[i].hash == hash )
-        {
-            return 1;
-        }
-    }
-    return 0;
-}
-#endif
+#define kKeyExecute         0x0000009ac9ecdcb1
+#define kKeyStdin           0x000000001825d07b
+#define kKeyNullTermination 0xd8f661f7221f0b0c
 
 
 /*
@@ -540,8 +478,8 @@ char * lookupSeries( tDictionary * dictionary, char * series )
     {
         switch ( c )
         {
-            // we hash the '&' character as if 'and' was used. so both forms generate the same hash
-            // e.g. the hash of 'Will & Grace' will match the hash of 'Will and Grace'
+            /* we hash the '&' character as if 'and' was used. so both forms generate the same
+               hash e.g. the hash of 'Will & Grace' will match the hash of 'Will and Grace' */
         case '&':
             hash ^= hash * 43 + 'a';
             hash ^= hash * 43 + 'n';
@@ -549,9 +487,8 @@ char * lookupSeries( tDictionary * dictionary, char * series )
             break;
 
         case kLBracket:
-            // we found something bracketed, e.g. (uk) or (2019)
-            // so we also check the intermediate hash against the dictionary,
-            //
+            /* we found something bracketed, e.g. (uk) or (2019) so we
+               also check the intermediate hash against the dictionary */
             debugf( "checking: %016lx\n", hash);
 
             result = findValue( dictionary, hash );
@@ -649,9 +586,9 @@ int storeParam( tDictionary *dictionary, tHash hash, char * value )
         addParam( dictionary, kKeyDateRecorded, value );
 #else
         strptime( value, "%Y-%m-%d-%H%M", &dateRecorded);
-                strftime( (char * restrict)temp, sizeof(temp), "%x %X", &dateRecorded );
-                debugf("recorded: %s\n", temp);
-                addParam( dictionary, kKeyDateRecorded, temp );
+        strftime( (char * restrict)temp, sizeof(temp), "%x %X", &dateRecorded );
+        debugf("recorded: %s\n", temp);
+        addParam( dictionary, kKeyDateRecorded, temp );
 #endif
         break;
 
@@ -676,11 +613,11 @@ int parseName( tDictionary *dictionary, char *name )
     }
 
     unsigned char sep = ' ';
-    if (histogram['.'] > histogram[sep])
+    if ( histogram['.'] > histogram[sep] )
         sep = '.';
-    if (histogram['_'] > histogram[sep])
+    if ( histogram['_'] > histogram[sep] )
         sep = '_';
-    if (histogram['-'] > histogram[sep])
+    if ( histogram['-'] > histogram[sep] )
         sep = '-';
 
 
@@ -796,7 +733,8 @@ int parsePath( tDictionary *dictionary, char *path )
     addParam( dictionary, kKeySource, path );
 
     char *lastPeriod = strrchr( path, '.' );
-    if ( lastPeriod != NULL ) {
+    if ( lastPeriod != NULL )
+    {
         addParam( dictionary, kKeyExtension, lastPeriod );
     }
     else
@@ -818,7 +756,7 @@ int parsePath( tDictionary *dictionary, char *path )
         lastSlash = path; // no directories prefixed
     }
 
-    char *basename = strndup( lastSlash, lastPeriod - lastSlash );
+    char * basename = strndup( lastSlash, lastPeriod - lastSlash );
     addParam( dictionary, kKeyBasename, basename );
     parseName( dictionary, basename );
     free( basename );
@@ -828,11 +766,11 @@ int parsePath( tDictionary *dictionary, char *path )
 
 char *buildString( tDictionary *mainDict, tDictionary *fileDict, char *template )
 {
-    const char *t = template;
-    char *result = NULL;
-    char *s;    // pointer into the returned string
+    char * result = NULL;
+    const char * t = template;
+    char * s;    // pointer into the returned string
 
-    result = calloc(1, 32768);
+    result = calloc( 1, 32768 );
     s = result;
 
     if ( s != NULL )
@@ -861,10 +799,11 @@ char *buildString( tDictionary *mainDict, tDictionary *fileDict, char *template 
                         c = *t++;
                     }
 
+#if 0
                     char * tmpStr = strndup( k, t - k - 1 );
                     debugf( "key \'%s\' = 0x%016lx\n", tmpStr, hash );
                     free( tmpStr );
-
+#endif
                     if ( hash != kKeyTemplate ) // don't want to expand a {template} keyword in a template
                     {
                         char * value = findValue( fileDict, hash );
@@ -1078,6 +1017,56 @@ int parseConfig( tDictionary * dictionary, char * path, char *myName )
     return result;
 }
 
+int processFile( tDictionary * mainDict, tDictionary * destSeriesDict, char *path)
+{
+    int result;
+
+    char * template = findValue( mainDict, kKeyTemplate );
+    if ( template == NULL )
+    {
+        fprintf( stderr, "### Error: no template defined.\n" );
+        result = -2;
+    }
+    else
+    {
+        debugf( "template = \'%s\'\n", template );
+
+        tDictionary *fileDict = createDictionary( "File" );
+        if ( fileDict != NULL )
+        {
+            parsePath( fileDict, path );
+
+            char * series = findValue( fileDict, kKeySeries );
+            if ( series != NULL )
+            {
+                char * destSeries = lookupSeries( destSeriesDict, series );
+                if ( destSeries != NULL )
+                {
+                    addParam( fileDict, kKeyDestSeries, destSeries );
+                }
+            }
+
+            printDictionary( fileDict );
+
+            char * string = buildString( mainDict, fileDict, template );
+            char * exec   = findValue( mainDict, kKeyExecute );
+            if ( exec != NULL )
+            {
+                result = system(string);
+            }
+            else
+            {
+                printf( "%s%c", string, '\n' );
+                result = 0;
+            }
+            free( string );
+
+            destroyDictionary( fileDict );
+        }
+    }
+    return result;
+}
+
 int main( int argc, char * argv[] )
 {
     int  result       = 0;
@@ -1147,13 +1136,27 @@ int main( int argc, char * argv[] )
                 //  break;
 
                 case 'd':   // destination
-                    --cnt;
                     addParam( mainDict, kKeyDestination, argv[ i ] );
+                    --cnt;
+                    ++i;
                     break;
 
                 case 't':   // template
-                    --cnt;
                     addParam( mainDict, kKeyTemplate, argv[ i ] );
+                    --cnt;
+                    ++i;
+                    break;
+
+                case 'x':   // execute
+                    addParam( mainDict, kKeyExecute, "yes" );
+                    break;
+
+                case '-':   // also read lines from stdin
+                    addParam( mainDict, kKeyStdin, "yes" );
+                    break;
+
+                case '0':   // entries from stdio are terminated with NULLs
+                    addParam( mainDict, kKeyNullTermination, "yes" );
                     break;
 
                 default:
@@ -1173,7 +1176,6 @@ int main( int argc, char * argv[] )
             }
             ++k;
         }
-        ++i;
     }
     argc = cnt;
 
@@ -1186,7 +1188,6 @@ int main( int argc, char * argv[] )
 
     if ( destination == NULL )
     {
-        destroyDictionary( destSeriesDict );
         fprintf( stderr, "### Error: no destination defined.\n" );
         result = -3;
     }
@@ -1197,45 +1198,58 @@ int main( int argc, char * argv[] )
     }
 
 
-    char * template = findValue( mainDict, kKeyTemplate );
-    if ( template == NULL )
+    for ( int i = 1; i < argc && result == 0; ++i )
     {
-        fprintf( stderr, "### Error: no template defined.\n" );
-        result = -2;
+        debugf( "%d: \'%s\'\n", i, argv[ i ] );
+        processFile( mainDict, destSeriesDict, argv[i] );
     }
-    else
+
+    // should we also read from stdin?
+    if ( findValue( mainDict, kKeyStdin ) != NULL )
     {
-        debugf( "template = \'%s\'\n", template );
+        char line[PATH_MAX];
 
-
-        for ( int i = 1; i < argc && result == 0; ++i )
+        if ( findValue( mainDict, kKeyNullTermination ) != NULL )
         {
-            tDictionary *fileDict = createDictionary( "File" );
+            // lines are terminated by \0
+            char * p = line;
+            cnt = sizeof( line );
 
-            debugf( "%d: \'%s\'\n", i, argv[ i ] );
-
-            parsePath( fileDict, argv[ i ] );
-
-            char * series = findValue( fileDict, kKeySeries );
-            if ( series != NULL )
+            while (!feof(stdin))
             {
-                char * destSeries = lookupSeries( destSeriesDict, series );
-                if ( destSeries != NULL )
+                char c = fgetc( stdin );
+                *p++ = c;
+                cnt--;
+
+                if ( c == '\0' || cnt < 1 )
                 {
-                    addParam( fileDict, kKeyDestSeries, destSeries );
+                    debugf( "null: %s\n", line );
+                    processFile( mainDict, destSeriesDict, line );
+
+                    p = line;
+                    cnt = sizeof( line );
                 }
             }
+        }
+        else
+        {
+            while (!feof(stdin))
+            {
+                // lines are terminated by \n
+                fgets( line, sizeof(line), stdin );
 
-            printDictionary( fileDict );
-
-            char * string = buildString( mainDict, fileDict, template );
-            printf( "%s%c", string, '\n' );
-            free( string );
-
-            destroyDictionary( fileDict );
+                // trim the inevitable trailing newline(s)/whitespace
+                trimTrailingWhitespace( line );
+                debugf("eol: %s\n", line);
+                processFile(mainDict, destSeriesDict, line);
+            }
         }
     }
+
+    // all done, clean up.
     destroyDictionary( mainDict );
+    destroyDictionary( destSeriesDict );
 
     return result;
 }
+
