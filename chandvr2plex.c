@@ -10,6 +10,7 @@
 #include "chandvr2plex.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
 #include <limits.h>
 #include <sys/types.h>
 #include <string.h>
@@ -21,6 +22,7 @@
 #include <dirent.h>
 #define __USE_GNU
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include "chandvr2plex.h"
 
@@ -764,7 +766,7 @@ int parsePath( tDictionary *dictionary, char *path )
     return result;
 }
 
-char *buildString( tDictionary *mainDict, tDictionary *fileDict, char *template )
+char *buildString( tDictionary *mainDict, tDictionary *fileDict, const char *template )
 {
     char * result = NULL;
     const char * t = template;
@@ -993,24 +995,42 @@ int parseConfig( tDictionary * dictionary, char * path, char *myName )
             snprintf( temp, sizeof( temp ), "%s/.config/%s.conf", home, myName );
             debugf( "~ path: %s\n", temp );
 
-            if ( eaccess( temp, R_OK ) == 0 )   // only attempt to parse it if there's something there
+            switch ( eaccess( temp, R_OK ) )   // only attempt to parse it if there's something there
             {
+            case 0:
                 result = parseConfigFile( dictionary, temp );
+                break;
+
+            case EFAULT:
+                break;
+
+            default:
+                fprintf( stderr, "### Error: Unable to read config file \'%s\': %d", temp, errno );
+                perror( NULL );
+                break;
             }
         }
     }
 
-    if ( result == 0 )
+    if ( result == 0 && path != NULL )
     {
-        if ( eaccess( path, R_OK ) == 0 )  // only attempt to parse it if there's something there
+        snprintf( temp, sizeof( temp ), "%s/%s.conf", path, myName );
+        debugf( "-c path: %s\n", temp );
+
+        switch ( eaccess( temp, R_OK ) )  // only attempt to parse it if there's something there
         {
-            debugf( "-c path: %s\n", path );
-            result = parseConfigFile( dictionary, path );
-        } else
-        {
-            fprintf( stderr, "### Error: Unable to read config file \'%s\': ", path );
+        case 0:
+            result = parseConfigFile( dictionary, temp );
+            break;
+
+        case EFAULT:
+            break;
+
+        default:
+            fprintf( stderr, "### Error: Unable to read config file \'%s\': %d", temp, errno );
             perror( NULL );
             result = -5;
+            break;
         }
     }
 
@@ -1019,7 +1039,7 @@ int parseConfig( tDictionary * dictionary, char * path, char *myName )
 
 int processFile( tDictionary * mainDict, tDictionary * destSeriesDict, char *path)
 {
-    int result;
+    int result = 0;
 
     char * template = findValue( mainDict, kKeyTemplate );
     if ( template == NULL )
@@ -1040,10 +1060,16 @@ int processFile( tDictionary * mainDict, tDictionary * destSeriesDict, char *pat
             if ( series != NULL )
             {
                 char * destSeries = lookupSeries( destSeriesDict, series );
-                if ( destSeries != NULL )
+
+                if ( destSeries == NULL )
+                {
+                    addParam( fileDict, kKeyDestSeries, series );
+                }
+                else
                 {
                     addParam( fileDict, kKeyDestSeries, destSeries );
                 }
+
             }
 
             printDictionary( fileDict );
@@ -1110,9 +1136,8 @@ int main( int argc, char * argv[] )
         configPath = NULL;
     }
 
-    i = 1;
     k = 1;
-    while ( i < argc && result == 0 )
+    for ( i = 1; i < argc && result == 0; i++ )
     {
         debugf( "2: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
 
@@ -1128,7 +1153,6 @@ int main( int argc, char * argv[] )
             else
             {
                 --cnt;
-                ++i;
 
                 switch ( option )
                 {
@@ -1180,7 +1204,6 @@ int main( int argc, char * argv[] )
     argc = cnt;
 
     printDictionary( mainDict );
-
 
     tDictionary *destSeriesDict = createDictionary( "Series" );
 
@@ -1252,4 +1275,3 @@ int main( int argc, char * argv[] )
 
     return result;
 }
-
