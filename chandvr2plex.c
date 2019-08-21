@@ -219,12 +219,20 @@ typedef struct {
 void trimTrailingWhitespace(char *line)
 {
     char * t = line;
+    char * nwsp = line;
 
-    while (*t != '\0') { t++; }
-    t--;
-    while (t > line && isspace(*t)) { t--; }
-    t++;
-    *t = '\0';
+    if ( t != NULL )
+    {
+        while (*t != '\0')
+        {
+            if (!isspace(*t++))
+            {
+                // note: t has already been incremented
+                nwsp = t;
+            }
+        }
+        *nwsp = '\0';
+    }
 }
 
 tDictionary * createDictionary( const char * name )
@@ -607,10 +615,32 @@ int parseName( tDictionary *dictionary, char *name )
     memset( histogram, 0, sizeof(histogram));
     for ( unsigned char * s = (unsigned char *)name; *s != '\0'; ++s )
     {
+        switch ( *s )
+        {
+        case '.':
+            // don't count all the periods in acronyms like S.W.A.T. and S.H.I.E.L.D.
+            if ( !isprint( s[1] ) || s[2] != '.' )
+            {
+                histogram[ *s ] += 1;
+            }
+            break;
+
+        case '-':
+            // don't count dashs within number runs, e.g. 2019-08-21-1600
+            if ( !isdigit( s[1] ) || !isdigit(s[-1] ) )
+            {
+                histogram[ *s ] += 1;
+            }
+            break;
+
+        default:
+            histogram[ *s ] += 1;
+            break;
+        }
+
         // don't count all the periods in acronyms like S.W.A.T. and S.H.I.E.L.D.
         if ( *s != '.' || !isprint( s[1] ) || s[2] != '.' )
         {
-            histogram[ *s ] += 1;
         }
     }
 
@@ -629,7 +659,7 @@ int parseName( tDictionary *dictionary, char *name )
         char seenSeries = 0;
         char * start = temp;
         char * end = temp;
-        char * prevSep = &temp[ strlen( temp ) ]; // initially point at the last null
+        char * prevSep = NULL;
         tHash  hash = 0;
 
         unsigned char c;
@@ -646,8 +676,8 @@ int parseName( tDictionary *dictionary, char *name )
             else // we reached a separator, or the end of the string
             {
                 *end = '\0'; // terminate the token (will be undone later if no hash match)
-                /* debugf( "token: \'%s\' = %016lx\n", prevSep != NULL ? &prevSep[1] : start, hash ); */
-                /* debugf( "run: \'%s\'\n", start ); */
+                debugf( "token: \'%s\' = %016lx\n", prevSep == NULL ? start : &prevSep[1], hash );
+                debugf( "run: \'%s\'\n", start );
 
                 // check to see if the token has a hash/pattern we recognize
                 switch (hash)
@@ -663,29 +693,28 @@ int parseName( tDictionary *dictionary, char *name )
                 case kPattern_OneDash:  // -
                 case kPattern_Date:     // yyyy-mm-dd
                 case kPattern_DateTime: // yyyy-mm-dd-hhmm
-                    if ( prevSep != NULL )
-                    {
+                    if ( prevSep != NULL ) {
                         // first store the run of unmatched tokens into a param
                         *prevSep = '\0';
-
-                        if (seenSeries)
-                        { // second (and subsequent) unmatched runs are assumed to be episode title
-                            debugf( "title: \'%s\'\n", start );
-                            addParam( dictionary, kKeyTitle, start );
-                        }
-                        else
-                        { // first unmatched run is presumed to be the series
-                            debugf( "series: \'%s\'\n", start );
-                            addParam( dictionary, kKeySeries, start );
-                            seenSeries = 1;
-                        }
-
-                        // now point at the beginning of the matched hash, which is just past prevSep
-                        start = &prevSep[1];
-                        prevSep = NULL;
                     }
 
-                    /* debugf( "store: \'%s\'\n", start ); */
+                    if (seenSeries)
+                    { // second (and subsequent) unmatched runs are assumed to be episode title
+                        debugf( "title: \'%s\'\n", start );
+                        addParam( dictionary, kKeyTitle, start );
+                    }
+                    else
+                    { // first unmatched run is presumed to be the series
+                        debugf( "series: \'%s\'\n", start );
+                        addParam( dictionary, kKeySeries, start );
+                        seenSeries = 1;
+                    }
+
+                    // now point at the beginning of the matched hash, which is just past prevSep
+                    start = &prevSep[1];
+
+
+                    debugf( "store: \'%s\'\n", start );
                     storeParam( dictionary, hash, start );
                     start = &end[1];
                     break;
@@ -706,7 +735,7 @@ int parseName( tDictionary *dictionary, char *name )
                         }
                     }
                     else
-                    {   // not at the end of the string, so undo the null written just before switch
+                    {   // not at the end of the string, so undo the null written just before switch() above
                         *end = ' ';
                     }
                     prevSep = end;
@@ -910,69 +939,75 @@ int parseConfigFile( tDictionary * dictionary, char * path )
     FILE *file;
     char *buffer = malloc( 4096 ); // 4K seems like plenty
 
-    debugf( "config file: \"%s\"\n", path );
-    file = fopen( path, "r" );
-    if ( file == NULL)
+    debugf( "config file: \'%s\'\n", path );
+    if ( eaccess( path, R_OK ) == 0 )   // only attempt to parse it if there's something there
     {
-        fprintf( stderr, "### Error: Unable to open config file \'%s\': ", path );
-        perror(NULL);
-        return -5;
+        file = fopen(path, "r");
+        if (file == NULL)
+        {
+            fprintf( stderr,
+                     "### Error: Unable to open config file \'%s\' (%d: %s)\n",
+                     path, errno, strerror(errno) );
+            result = -5;
+        }
+        else
+        {
+            while ( fgets(buffer, 4096, file) != NULL )
+            {
+                trimTrailingWhitespace(buffer);
+                debugf("line: \"%s\"\n", buffer);
+
+                tHash hash = 0;
+                char *s = buffer;
+                while (isspace(*s)) {
+                    s++;
+                }
+
+                unsigned char c = (unsigned char) *s++;
+                if (c != '\0') {
+                    while (c != '\0' && c != '=') {
+                        if (c != kIgnore) {
+                            hash ^= hash * 43 + hashKey[c];
+                        }
+                        c = (unsigned char) *s++;
+                    }
+
+                    if (c == '=') {
+                        // trim whitespace from the beginning of the value
+                        while (isspace(*s)) {
+                            s++;
+                        }
+
+                        char *e = s;
+                        char *p = s;
+                        while (*p != '\0') {
+                            if ( !isspace(*p++) ) {
+                                e = p; // remember the location just past the most recent non-whitespace char we've seen
+                            }
+                        }
+                        // e should now point just past the last non-whitespace character in the string
+                        *e = '\0'; // trim off any trailing whitespace at the end of the string - including the LF
+
+                    }
+                    debugf("hash = 0x%016lx, value = \'%s\'\n", hash, s);
+                    addParam(dictionary, hash, s);
+                }
+            }
+            free(buffer);
+            fclose(file);
+        }
     }
     else
     {
-        while ( fgets( buffer, 4096, file ) != NULL)
+        if (errno != ENOENT)
         {
-            trimTrailingWhitespace( buffer );
-            debugf( "line: \"%s\"\n", buffer );
-
-            tHash hash = 0;
-            char  *s   = buffer;
-            while ( isspace( *s ))
-            {
-                s++;
-            }
-
-            unsigned char c = (unsigned char) *s++;
-            if ( c != '\0' )
-            {
-                while ( c != '\0' && c != '=' )
-                {
-                    if ( c != kIgnore )
-                    {
-                        hash ^= hash * 43 + hashKey[ c ];
-                    }
-                    c = (unsigned char) *s++;
-                }
-
-                if ( c == '=' )
-                {
-                    // trim whitespace from the beginning of the value
-                    while ( isspace( *s ) )
-                    {
-                        s++;
-                    }
-
-                    char *e = s;
-                    char *p = s;
-                    while ( *p != '\0' )
-                    {
-                        if ( !isspace( *p ) )
-                        {
-                            e = p; // remember the location of the most recent non-whitespace character we've seen
-                        }
-                        p++;
-                    }
-                    // e should now point at the last non-whitespace character in the string
-                    e[ 1 ] = '\0'; // trim off any trailing whitespace at the end of the string - including the LF
-
-                }
-                debugf( "hash = 0x%016lx, value = \'%s\'\n", hash, s );
-                addParam( dictionary, hash, s );
-            }
+            fprintf( stderr,
+                     "### Error: Unable to access config file \'%s\' (%d: %s)",
+                     path, errno, strerror(errno) );
         }
-        free( buffer );
-        fclose( file );
+        result = errno;
     }
+
     return result;
 }
 
@@ -989,9 +1024,11 @@ int parseConfig( tDictionary * dictionary, char * path, char *myName )
 
     snprintf( temp, sizeof( temp ), "/etc/%s.conf", myName );
     debugf( "/etc path: \"%s\"\n", temp );
-    if ( eaccess( temp, R_OK ) == 0 ) // only attempt to parse it if there's something there
+
+    result = parseConfigFile( dictionary, temp );
+    if ( result == ENOENT )
     {
-        result = parseConfigFile( dictionary, temp );
+        result = 0;
     }
 
     if ( result == 0 )
@@ -1006,19 +1043,10 @@ int parseConfig( tDictionary * dictionary, char * path, char *myName )
             snprintf( temp, sizeof( temp ), "%s/.config/%s.conf", home, myName );
             debugf( "~ path: \"%s\"\n", temp );
 
-            switch ( eaccess( temp, R_OK ) )   // only attempt to parse it if there's something there
+            result = parseConfigFile( dictionary, temp );
+            if ( result == ENOENT )
             {
-            case 0:
-                result = parseConfigFile( dictionary, temp );
-                break;
-
-            case ENOENT:
-                break;
-
-            default:
-                fprintf( stderr, "### Error: Unable to read config file \'%s\': ", temp );
-                perror( NULL );
-                break;
+                result = 0;
             }
         }
     }
@@ -1028,18 +1056,7 @@ int parseConfig( tDictionary * dictionary, char * path, char *myName )
         snprintf( temp, sizeof( temp ), "%s/%s.conf", path, myName );
         debugf( "-c path: %s\n", temp );
 
-        switch ( eaccess( temp, R_OK ) )  // only attempt to parse it if there's something there
-        {
-        case 0:
-            result = parseConfigFile( dictionary, temp );
-            break;
-
-        default:
-            fprintf( stderr, "### Error: Unable to read config file \'%s\': ", temp );
-            perror( NULL );
-            result = -5;
-            break;
-        }
+        result = parseConfigFile( dictionary, temp );
     }
 
     return result;
@@ -1114,7 +1131,7 @@ int main( int argc, char * argv[] )
     int k = 1;
     for ( int i = 1; i < argc && result == 0; i++ )
     {
-        debugf( "1: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[ i ] );
+        debugf( "a: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[ i ] );
 
         // is it the config file option?
         if ( strcmp( argv[ i ], "-c" ) == 0 )
@@ -1145,7 +1162,7 @@ int main( int argc, char * argv[] )
     k = 1;
     for ( int i = 1; i < argc && result == 0; i++ )
     {
-        debugf( "2: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
+        debugf( "b: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
 
         // is it an option?
         if (argv[i][0] == '-' )
