@@ -36,6 +36,8 @@ typedef enum
 
 typedef unsigned long tHash;
 
+static int gDebugLevel = 0;
+
 /*
  * this hash table is used to generate hashes used to match patterns.
  * it maps all digits to the same value, maps uppercase letters to
@@ -253,7 +255,7 @@ void destroyDictionary( tDictionary * dictionary )
     {
         tParam * next;
 
-        // debugf( "{%s}\n", p->value );
+        // debugf( 3, "{%s}\n", p->value );
         next = p->next;
         free( p->value );
         free( p );
@@ -265,12 +267,12 @@ void printDictionary( tDictionary * dictionary )
 {
     if ( dictionary != NULL )
     {
-        debugf( "...%s dictionary...\n", dictionary->name);
+        debugf( 3, "...%s dictionary...\n", dictionary->name);
 
         tParam * p = dictionary->head;
         while ( p != NULL )
         {
-            debugf( "0x%016lx, \"%s\"\n", p->hash, p->value );
+            debugf( 3, "0x%016lx, \"%s\"\n", p->hash, p->value );
             p = p->next;
         }
     }
@@ -449,7 +451,7 @@ static int scanDirFilter( const struct dirent * entry)
 
     result = ( entry->d_name[0] != '.' && entry->d_type == DT_DIR );
 
-    // debugf( "%s, 0x%x, %d\n", entry->d_name, entry->d_type, result );
+    // debugf( 3, "%s, 0x%x, %d\n", entry->d_name, entry->d_type, result );
     return result;
 }
 
@@ -499,7 +501,7 @@ char * lookupSeries( tDictionary * dictionary, char * series )
         case kLBracket:
             /* we found something bracketed, e.g. (uk) or (2019) so we
                also check the intermediate hash against the dictionary */
-            debugf( "checking: %016lx\n", hash);
+            debugf( 3, "checking: %016lx\n", hash);
 
             result = findValue( dictionary, hash );
             if (result != NULL )
@@ -519,11 +521,11 @@ char * lookupSeries( tDictionary * dictionary, char * series )
         c = hashKey[ *s++ ];
     }
 
-    debugf( "checking: %016lx\n", hash);
+    debugf( 3, "checking: %016lx\n", hash);
 
     result = findValue( dictionary, hash );
 
-    debugf( "match: %s\n", result != NULL ? result : "<not found>" );
+    debugf( 3, "match: %s\n", result != NULL ? result : "<not found>" );
     return result;
 }
 
@@ -562,42 +564,42 @@ int storeParam( tDictionary *dictionary, tHash hash, char * value )
     case kPattern_SnnEn:    // SnnEn
     case kPattern_SnEnn:    // SnEnn
     case kPattern_SnEn:     // SnEn
-        debugf("SnnEnn: %s\n", value);
+        debugf( 3,"SnnEnn: %s\n", value);
         sscanf( value, "%*1c%u%*1c%u", &season, &episode ); // ignore characters since we don't know their case
         addSeasonEpisode( dictionary, season, episode );
         break;
 
     case kPattern_nXnn:
     case kPattern_nnXnn:
-        debugf("nnXnn: %s\n", value);
+        debugf( 3,"nnXnn: %s\n", value);
         sscanf( value, "%u%*1c%u", &season, &episode ); // ignore characters since we don't know their case
         addSeasonEpisode( dictionary, season, episode );
         break;
 
     case kPattern_OneDash:
-        // debugf("one dash = %s\n", value);
+        // debugf( 3,"one dash = %s\n", value);
         break;
 
     case kPattern_Date:
-        debugf("yyyy-mm-dd: %s\n", value);
+        debugf( 3,"yyyy-mm-dd: %s\n", value);
 #if 1
         addParam( dictionary, kKeyFirstAired, value );
 #else
         strptime( value, "%Y-%m-%d", &firstAired );
         strftime( (char * restrict)temp, sizeof(temp), "%x", &firstAired );
-        debugf("first aired: %s\n", temp);
+        debugf( 3,"first aired: %s\n", temp);
         addParam( dictionary, kKeyFirstAired, temp );
 #endif
         break;
 
     case kPattern_DateTime:
-        debugf("yyyy-mm-dd-hhmm: %s\n", value);
+        debugf( 3,"yyyy-mm-dd-hhmm: %s\n", value);
 #if 1
         addParam( dictionary, kKeyDateRecorded, value );
 #else
         strptime( value, "%Y-%m-%d-%H%M", &dateRecorded);
         strftime( (char * restrict)temp, sizeof(temp), "%x %X", &dateRecorded );
-        debugf("recorded: %s\n", temp);
+        debugf( 3,"recorded: %s\n", temp);
         addParam( dictionary, kKeyDateRecorded, temp );
 #endif
         break;
@@ -676,8 +678,8 @@ int parseName( tDictionary *dictionary, char *name )
             else // we reached a separator, or the end of the string
             {
                 *end = '\0'; // terminate the token (will be undone later if no hash match)
-                debugf( "token: \'%s\' = %016lx\n", prevSep == NULL ? start : &prevSep[1], hash );
-                debugf( "run: \'%s\'\n", start );
+                debugf( 3, "token: \'%s\' = %016lx\n", prevSep == NULL ? start : &prevSep[1], hash );
+                debugf( 3, "run: \'%s\'\n", start );
 
                 // check to see if the token has a hash/pattern we recognize
                 switch (hash)
@@ -700,12 +702,12 @@ int parseName( tDictionary *dictionary, char *name )
 
                     if (seenSeries)
                     { // second (and subsequent) unmatched runs are assumed to be episode title
-                        debugf( "title: \'%s\'\n", start );
+                        debugf( 3, "title: \'%s\'\n", start );
                         addParam( dictionary, kKeyTitle, start );
                     }
                     else
                     { // first unmatched run is presumed to be the series
-                        debugf( "series: \'%s\'\n", start );
+                        debugf( 3, "series: \'%s\'\n", start );
                         addParam( dictionary, kKeySeries, start );
                         seenSeries = 1;
                     }
@@ -714,7 +716,7 @@ int parseName( tDictionary *dictionary, char *name )
                     start = &prevSep[1];
 
 
-                    debugf( "store: \'%s\'\n", start );
+                    debugf( 3, "store: \'%s\'\n", start );
                     storeParam( dictionary, hash, start );
                     start = &end[1];
                     break;
@@ -724,12 +726,12 @@ int parseName( tDictionary *dictionary, char *name )
                     {
                         if (seenSeries)
                         { // second (and subsequent) unmatched runs are assumed to be episode title
-                            debugf( "store title 0: \'%s\'\n", start );
+                            debugf( 3, "store title 0: \'%s\'\n", start );
                             addParam( dictionary, kKeyTitle, start );
                         }
                         else
                         { // first unmatched run is presumed to be the series
-                            debugf( "store series 0: \'%s\'\n", start );
+                            debugf( 3, "store series 0: \'%s\'\n", start );
                             addParam( dictionary, kKeySeries, start );
                             seenSeries = 1;
                         }
@@ -832,7 +834,7 @@ char *buildString( tDictionary *mainDict, tDictionary *fileDict, const char *tem
 
 #if 0
                     char * tmpStr = strndup( k, t - k - 1 );
-                    debugf( "key \'%s\' = 0x%016lx\n", tmpStr, hash );
+                    debugf( 3, "key \'%s\' = 0x%016lx\n", tmpStr, hash );
                     free( tmpStr );
 #endif
                     if ( hash != kKeyTemplate ) // don't want to expand a {template} keyword in a template
@@ -848,7 +850,7 @@ char *buildString( tDictionary *mainDict, tDictionary *fileDict, const char *tem
                         {
                             char * envkey = strndup( k, t - k - 1 );
                             value = getenv( envkey );
-                            // debugf( "env=\"%s\", value=\"%s\"\n", envkey, value );
+                            // debugf( 3, "env=\"%s\", value=\"%s\"\n", envkey, value );
                             free( envkey );
                         }
 
@@ -939,7 +941,7 @@ int parseConfigFile( tDictionary * dictionary, char * path )
     FILE *file;
     char *buffer = malloc( 4096 ); // 4K seems like plenty
 
-    debugf( "config file: \'%s\'\n", path );
+    debugf( 3, "config file: \'%s\'\n", path );
     if ( eaccess( path, R_OK ) == 0 )   // only attempt to parse it if there's something there
     {
         file = fopen(path, "r");
@@ -955,7 +957,7 @@ int parseConfigFile( tDictionary * dictionary, char * path )
             while ( fgets(buffer, 4096, file) != NULL )
             {
                 trimTrailingWhitespace(buffer);
-                debugf("line: \"%s\"\n", buffer);
+                debugf( 3,"line: \"%s\"\n", buffer);
 
                 tHash hash = 0;
                 char *s = buffer;
@@ -989,7 +991,7 @@ int parseConfigFile( tDictionary * dictionary, char * path )
                         *e = '\0'; // trim off any trailing whitespace at the end of the string - including the LF
 
                     }
-                    debugf("hash = 0x%016lx, value = \'%s\'\n", hash, s);
+                    debugf( 3,"hash = 0x%016lx, value = \'%s\'\n", hash, s);
                     addParam(dictionary, hash, s);
                 }
             }
@@ -1023,7 +1025,7 @@ int parseConfig( tDictionary * dictionary, char * path, char *myName )
     char temp[PATH_MAX];
 
     snprintf( temp, sizeof( temp ), "/etc/%s.conf", myName );
-    debugf( "/etc path: \"%s\"\n", temp );
+    debugf( 3, "/etc path: \"%s\"\n", temp );
 
     result = parseConfigFile( dictionary, temp );
     if ( result == ENOENT )
@@ -1041,7 +1043,7 @@ int parseConfig( tDictionary * dictionary, char * path, char *myName )
         if ( home != NULL )
         {
             snprintf( temp, sizeof( temp ), "%s/.config/%s.conf", home, myName );
-            debugf( "~ path: \"%s\"\n", temp );
+            debugf( 3, "~ path: \"%s\"\n", temp );
 
             result = parseConfigFile( dictionary, temp );
             if ( result == ENOENT )
@@ -1054,7 +1056,7 @@ int parseConfig( tDictionary * dictionary, char * path, char *myName )
     if ( result == 0 && path != NULL )
     {
         snprintf( temp, sizeof( temp ), "%s/%s.conf", path, myName );
-        debugf( "-c path: %s\n", temp );
+        debugf( 3, "-c path: %s\n", temp );
 
         result = parseConfigFile( dictionary, temp );
     }
@@ -1074,7 +1076,7 @@ int processFile( tDictionary * mainDict, tDictionary * destSeriesDict, char *pat
     }
     else
     {
-        debugf( "template = \'%s\'\n", template );
+        debugf( 3, "template = \'%s\'\n", template );
 
         tDictionary *fileDict = createDictionary( "File" );
         if ( fileDict != NULL )
@@ -1131,7 +1133,7 @@ int main( int argc, char * argv[] )
     int k = 1;
     for ( int i = 1; i < argc && result == 0; i++ )
     {
-        debugf( "a: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[ i ] );
+        debugf( 3, "a: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[ i ] );
 
         // is it the config file option?
         if ( strcmp( argv[ i ], "-c" ) == 0 )
@@ -1162,7 +1164,7 @@ int main( int argc, char * argv[] )
     k = 1;
     for ( int i = 1; i < argc && result == 0; i++ )
     {
-        debugf( "b: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
+        debugf( 3, "b: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
 
         // is it an option?
         if (argv[i][0] == '-' )
@@ -1206,6 +1208,17 @@ int main( int argc, char * argv[] )
                     addParam( mainDict, kKeyNullTermination, "yes" );
                     break;
 
+                case 'v': //verbose output, i.e. debug logging
+                    if ( i < argc - 1 )
+                    {
+                        ++i;
+                        --cnt;
+
+                        gDebugLevel = atoi( argv[i] );
+                        fprintf(stderr, "verbosity = %d\n", gDebugLevel );
+                    }
+                    break;
+
                 default:
                     ++cnt;
                     --i; // point back at the original option
@@ -1246,7 +1259,7 @@ int main( int argc, char * argv[] )
 
     for ( int i = 1; i < argc && result == 0; ++i )
     {
-        debugf( "%d: \'%s\'\n", i, argv[ i ] );
+        debugf( 3, "%d: \'%s\'\n", i, argv[ i ] );
         processFile( mainDict, destSeriesDict, argv[i] );
     }
 
@@ -1269,7 +1282,7 @@ int main( int argc, char * argv[] )
 
                 if ( c == '\0' || cnt < 1 )
                 {
-                    debugf( "null: %s\n", line );
+                    debugf( 3, "null: %s\n", line );
                     processFile( mainDict, destSeriesDict, line );
 
                     p = line;
@@ -1286,7 +1299,7 @@ int main( int argc, char * argv[] )
 
                 // trim the inevitable trailing newline(s)/whitespace
                 trimTrailingWhitespace( line );
-                debugf("eol: %s\n", line);
+                debugf( 3,"eol: %s\n", line);
                 processFile(mainDict, destSeriesDict, line);
             }
         }
