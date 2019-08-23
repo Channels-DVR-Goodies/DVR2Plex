@@ -8,4 +8,4 @@ set( CMAKE_C_FLAGS    "-Wall -Wextra" )
 
 include_directories(.)
 
-add_executable( ChanDVR2Plex chandvr2plex.c chandvr2plex.h )
+add_executable( ChanDVR2Plex chandvr2plex.c chandvr2plex.h dictionary.c dictionary.h)
