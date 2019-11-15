@@ -9,3 +9,4 @@ set( CMAKE_C_FLAGS    "-Wall -Wextra" )
 include_directories(.)
 
 add_executable( ChanDVR2Plex chandvr2plex.c chandvr2plex.h dictionary.c dictionary.h)
+target_link_libraries( ChanDVR2Plex "/usr/lib/x86_64-linux-gnu/libdl.so" )
