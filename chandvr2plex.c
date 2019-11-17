@@ -37,7 +37,7 @@ typedef enum
     kRBracket = ')'
 } tCharClass;
 
-int gDebugLevel = 3;
+int gDebugLevel = 0;
 
 /*
  * this hash table is used to generate hashes used to match patterns.
@@ -1099,6 +1099,16 @@ int processFile( tDictionary * mainDict, tDictionary * seriesDict, string path )
     return result;
 }
 
+string usage =
+"Command Line Options\n"
+"  -d <string>  set {destination} parameter\n"
+"  -t <string>  set {template} paameter\n"
+"  -x           pass each output string to the shell to execute\n"
+"  --           read from stdin\n"
+"  -0           stdin is null-terminated (also implies '--' option)\n"
+"  -v <level>   set the level of verbosity (debug info)\n";
+
+
 int main( int argc, string argv[] )
 {
     int  result       = 0;
@@ -1152,6 +1162,7 @@ int main( int argc, string argv[] )
             if ( argv[i][2] != '\0' )
             {
                 fprintf( stderr, "### Error: option \'%s\' not understood.\n", argv[ i ] );
+                fprintf( stderr, "%s", usage );
                 result = -1;
             }
             else
@@ -1184,6 +1195,7 @@ int main( int argc, string argv[] )
                     break;
 
                 case '0':   // entries from stdio are terminated with NULLs
+                    addParam( mainDict, kKeyStdin, "yes" );
                     addParam( mainDict, kKeyNullTermination, "yes" );
                     break;
 
@@ -1202,6 +1214,7 @@ int main( int argc, string argv[] )
                     ++cnt;
                     --i; // point back at the original option
                     fprintf( stderr, "### Error: option \'%s\' not understood.\n", argv[ i ] );
+                    fprintf( stderr, "%s", usage );
                     result = -1;
                     break;
                 }
@@ -1287,7 +1300,6 @@ int main( int argc, string argv[] )
     // all done, clean up.
     destroyDictionary( mainDict );
     destroyDictionary( seriesDict );
-
 
     return result;
 }
