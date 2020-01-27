@@ -1,4 +1,5 @@
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/68d3bc77c19b400693c30f07f6fe0fdf)](https://www.codacy.com/manual/paul-chambers/ChanDVR2Plex?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=paul-chambers/ChanDVR2Plex&amp;utm_campaign=Badge_Grade)
+[Documentation](https://paul-chambers.github.io/ChanDVR2Plex/)
 
 # ChanDVR2Plex
 

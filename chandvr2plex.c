@@ -29,8 +29,8 @@
 
 #include "dictionary.h"
 
-/*  hashes for patterns we are scanning for in the filename
 
+/*  hashes for patterns we are scanning for in the filename
     this hash table is used to generate hashes used to match patterns.
     it maps all digits to the same value, maps uppercase letters to
     lowercase, and ignores several characters completely.
@@ -953,7 +953,6 @@ int parseConfigFile( tDictionary * dictionary, string path )
             fclose(file);
         }
     }
-    else
 
     return result;
 }
@@ -1080,9 +1079,9 @@ int processConfigPath( string path )
 			_recurseConfig( gPathDict, absolute );
 		}
 
-		/* we may have picked up a new definition of {destination}
-		   as a result of parsing different config files.
-		   if so, we need to rebuild gSeriesDict */
+		/* we may have picked up a new definition of {destination} as
+		 * a result of parsing different config files. If so, we need
+		 * to rebuild gSeriesDict to reflect the new destination */
 
 		string destination = findParam( kKeywordDestination );
 
@@ -1143,6 +1142,16 @@ int processFile( string path )
     return result;
 }
 
+string usage =
+"Command Line Options\n"
+"  -d <string>  set {destination} parameter\n"
+"  -t <string>  set {template} paameter\n"
+"  -x           pass each output string to the shell to execute\n"
+"  --           read from stdin\n"
+"  -0           stdin is null-terminated (also implies '--' option)\n"
+"  -v <level>   set the level of verbosity (debug info)\n";
+
+
 int main( int argc, string argv[] )
 {
     int  result;
@@ -1198,82 +1207,161 @@ int main( int argc, string argv[] )
     }
 
     k = 1;
-    if ( result == 0 )
+    for ( int i = 1; i < argc && result == 0; i++ )
     {
-	    for ( int i = 1; i < argc; i++ )
+        debugf( 3, "b: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
+
+        // is it an option?
+        if (argv[i][0] == '-' )
+        {
+            char option = argv[i][1];
+            if ( argv[i][2] != '\0' )
+            {
+                fprintf( stderr, "### Error: option \'%s\' not understood.\n", argv[ i ] );
+                fprintf( stderr, "%s", usage );
+                result = -1;
+            }
+            else
+            {
+                --cnt;
+
+                switch ( option )
+                {
+                // case 'c':   // config file already handled
+                //  break;
+
+                case 'd':   // destination
+                    addParam( gMainDict, kKeywordDestination, argv[ i ] );
+                    --cnt;
+                    ++i;
+                    break;
+
+                case 't':   // template
+                    addParam( gMainDict, kKeywordTemplate, argv[ i ] );
+                    --cnt;
+                    ++i;
+                    break;
+
+                case 'x':   // execute
+                    addParam( gMainDict, kKeywordExecute, "yes" );
+                    break;
+
+                case '-':   // also read lines from stdin
+                    addParam( gMainDict, kKeywordStdin, "yes" );
+                    break;
+
+                case '0':   // entries from stdio are terminated with NULLs
+                    addParam( gMainDict, kKeywordStdin, "yes" );
+                    addParam( gMainDict, kKeywordNullTermination, "yes" );
+                    break;
+
+                case 'v': //verbose output, i.e. debug logging
+                    if ( i < argc - 1 )
+                    {
+                        ++i;
+                        --cnt;
+
+                        gDebugLevel = atoi( argv[i] );
+                        fprintf(stderr, "verbosity = %d\n", gDebugLevel );
+                    }
+                    break;
+
+                default:
+                    ++cnt;
+                    --i; // point back at the original option
+                    fprintf( stderr, "### Error: option \'%s\' not understood.\n", argv[ i ] );
+                    fprintf( stderr, "%s", usage );
+                    result = -1;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            if ( i != k )
+            {
+                argv[k] = argv[i];
+            }
+            ++k;
+        }
+    }
+    argc = cnt;
+
+    /* printDictionary( mainDict ); */
+
+    for ( int i = 1; i < argc; i++ )
+    {
+	    debugf( 3, "b: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
+
+	    // is it an option?
+	    if ( argv[i][0] == '-' )
 	    {
-		    debugf( 3, "b: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
-
-		    // is it an option?
-		    if ( argv[i][0] == '-' )
+		    char option = argv[i][1];
+		    if ( argv[i][2] != '\0' )
 		    {
-			    char option = argv[i][1];
-			    if ( argv[i][2] != '\0' )
-			    {
-				    fprintf( stderr, "### Error: option \'%s\' not understood.\n", argv[i] );
-				    result = -1;
-			    }
-			    else
-			    {
-				    --cnt;
-
-				    switch ( option )
-				    {
-				    case 'd':   // destination
-					    addParam( gMainDict, kKeywordDestination, argv[i] );
-					    --cnt;
-					    ++i;
-					    break;
-
-				    case 't':   // template
-					    addParam( gMainDict, kKeywordTemplate, argv[i] );
-					    --cnt;
-					    ++i;
-					    break;
-
-				    case 'x':   // execute
-					    addParam( gMainDict, kKeywordExecute, "yes" );
-					    break;
-
-				    case '-':   // also read lines from stdin
-					    addParam( gMainDict, kKeywordStdin, "yes" );
-					    break;
-
-				    case '0':   // entries from stdio are terminated with NULLs
-					    addParam( gMainDict, kKeywordNullTermination, "yes" );
-					    break;
-
-				    case 'v': //verbose output, i.e. debug logging
-					    if ( i < argc - 1 )
-					    {
-						    ++i;
-						    --cnt;
-
-						    gDebugLevel = atoi( argv[i] );
-						    fprintf( stderr, "verbosity = %d\n", gDebugLevel );
-					    }
-					    break;
-
-				    default:
-					    ++cnt;
-					    --i; // point back at the original option
-					    fprintf( stderr, "### Error: option \'%s\' not understood.\n", argv[i] );
-					    result = -1;
-					    break;
-				    }
-			    }
+			    fprintf( stderr, "### Error: option \'%s\' not understood.\n", argv[i] );
+			    result = -1;
 		    }
 		    else
 		    {
-			    if ( i != k )
+			    --cnt;
+
+			    switch ( option )
 			    {
-				    argv[k] = argv[i];
+			    case 'd':   // destination
+				    addParam( gMainDict, kKeywordDestination, argv[i] );
+				    --cnt;
+				    ++i;
+				    break;
+
+			    case 't':   // template
+				    addParam( gMainDict, kKeywordTemplate, argv[i] );
+				    --cnt;
+				    ++i;
+				    break;
+
+			    case 'x':   // execute
+				    addParam( gMainDict, kKeywordExecute, "yes" );
+				    break;
+
+			    case '-':   // also read lines from stdin
+				    addParam( gMainDict, kKeywordStdin, "yes" );
+				    break;
+
+			    case '0':   // entries from stdio are terminated with NULLs
+				    addParam( gMainDict, kKeywordNullTermination, "yes" );
+				    break;
+
+			    case 'v': //verbose output, i.e. debug logging
+				    if ( i < argc - 1 )
+				    {
+					    ++i;
+					    --cnt;
+
+					    gDebugLevel = atoi( argv[i] );
+					    fprintf( stderr, "verbosity = %d\n", gDebugLevel );
+				    }
+				    break;
+
+			    default:
+				    ++cnt;
+				    --i; // point back at the original option
+				    fprintf( stderr, "### Error: option \'%s\' not understood.\n", argv[i] );
+				    result = -1;
+				    break;
 			    }
-			    ++k;
 		    }
 	    }
-	    argc = cnt;
+	    else
+	    {
+		    if ( i != k )
+		    {
+			    argv[k] = argv[i];
+		    }
+		    ++k;
+	    }
     }
+    argc = cnt;
 
     printDictionary( gMainDict );
 
@@ -1331,5 +1419,5 @@ int main( int argc, string argv[] )
 	destroyDictionary( gSeriesDict );
 	destroyDictionary( gMainDict );
 
-	return result;
+    return result;
 }

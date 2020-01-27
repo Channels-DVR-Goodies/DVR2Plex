@@ -54,3 +54,5 @@ dkms.conf
 /chandvr2plex
 .idea/
 cmake-*/
+keywords.h
+patterns.h
