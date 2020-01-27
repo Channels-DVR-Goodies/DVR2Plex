@@ -1,0 +1,47 @@
+//
+// Created by paul on 1/14/20.
+//
+
+prefix = "Pattern"
+
+# the character mapping array
+# array starts out mapping one-to-one, i.e. input = output
+#
+mappings:
+{
+    # make the generated hashes case-insensitive
+    ignoreCase = true
+
+    # mark these characters as 'kPatternSeperator'
+    Seperator = " ._-"
+
+    # mark this range as 'kPatternDigit'
+    Digit = "0-9"
+
+    # mark the different styles of brackets as equivalent
+    LBracket = "({["
+    RBracket = ")}]"
+}
+
+# the strings to hash into the enum
+# if there's a comma, first string is for symbol, second is to hash
+#
+keywords = [
+    "SnnEnn,S00E00",
+    "SyyyyEnn,S0000E00",
+    "SnnEn,S00E0",
+    "SnEnn,S0E00",
+    "SnEn,S0E0",
+    "Ennn,E000",
+    "Ennnn,E0000",
+    "nXnn,0x00",
+    "nnXnn,00x00",
+    "TwoDigits,00",
+    "FourDigits,0000",
+    "SixDigits,000000",
+    "EightDigits,00000000",
+    "CountryUSA,(USA)",
+    "CountryUS,(US)",
+    "CountryUK,(UK)",
+    "Year,(0000)"
+]

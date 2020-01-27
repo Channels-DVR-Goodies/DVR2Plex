@@ -18,11 +18,12 @@ typedef struct {
     const char * name;
 } tDictionary;
 
-tDictionary * createDictionary( const char * name );
-void destroyDictionary( tDictionary * dictionary );
-string lookupHash(tHash);
-void printDictionary( tDictionary * dictionary );
-int addParam( tDictionary * dictionary, tHash hash, string value );
-string findValue( tDictionary * dictionary, tHash hash );
+tDictionary *  createDictionary( const char * name );
+         void  emptyDictionary( tDictionary * dictionary );
+         void  destroyDictionary( tDictionary * dictionary );
+       string  lookupHash( tHash );
+         void  printDictionary( tDictionary * dictionary);
+          int  addParam( tDictionary * dictionary, tHash hash, string value );
+       string  findValue( tDictionary * dictionary, tHash hash );
 
 #endif //CHANDVR2PLEX_DICTIONARY_H

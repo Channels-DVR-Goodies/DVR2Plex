@@ -8,50 +8,6 @@
 
 #include "dictionary.h"
 
-typedef struct {
-    tHash   key;
-    string  label;
-} tPrintHashMapping;
-
-tPrintHashMapping printHash[] = {
-        { kPattern_noMatch,     "noMatch"},     // not a pattern we recognize
-        { kPattern_SnnEnn,      "SnnEnn" },     // SnnEnn
-        { kPattern_SyyyyEnn,    "SyyyyEnn" },   // SyyyyEnn
-        { kPattern_SnnEn,       "SnnEn" },      // SnnEn
-        { kPattern_SnEnn,       "SnEnn" },      // SnEnn
-        { kPattern_SnEn,        "SnEn" },       // SnEn
-        { kPattern_Ennn,        "Ennn" },       // Ennn
-        { kPattern_Ennnn,       "Ennnn" },      // Ennnn
-        { kPattern_nXnn,        "nXnn" },       // nXnn
-        { kPattern_nnXnn,       "nnXnn" },      // nnXnn
-        { kPattern_Date,        "Date" },       // yyyy-mm-dd
-        { kPattern_DateTime,    "DateTime" },   // yyyy-mm-dd-hhmm
-        { kPattern_TwoDigits,   "two digits"},  // nn
-        { kPattern_FourDigits,  "four digits"}, // nnnn
-        { kPattern_SixDigits,   "six digits"},  // nnnnnn
-
-        { kKeyBasename,         "{Basename}"},
-        { kKeyDateRecorded,     "{DateRecorded}"},
-        { kKeyDestination,      "{Destination}"},
-        { kKeyDestSeries,       "{DestSeries}"},
-        { kKeyEpisode,          "{Episode}"},
-        { kKeyExtension,        "{Extension}"},
-        { kKeyFirstAired,       "{FirstAired}"},
-        { kKeyPath,             "{Path}"},
-        { kKeySeason,           "{Season}"},
-        { kKeySeasonFolder,     "{SeasonFolder}"},
-        { kKeySeries,           "{Series}"},
-        { kKeySource,           "{Source}"},
-        { kKeyTemplate,         "{Template}"},
-        { kKeyTitle,            "{Title}"},
-        { kKeyExecute,          "{Execute}"},
-        { kKeyStdin,            "{Stdin}"},
-        { kKeyNullTermination,  "{NullTermination}"},
-
-        { 0, NULL }
-};
-
-
 tDictionary * createDictionary( const char * name )
 {
     tDictionary * result = (tDictionary *)calloc( 1, sizeof(tDictionary) );
@@ -59,37 +15,28 @@ tDictionary * createDictionary( const char * name )
     return result;
 }
 
-void destroyDictionary( tDictionary * dictionary )
+void emptyDictionary( tDictionary * dictionary )
 {
-    tParam * p;
+	tParam * p = dictionary->head;
+	dictionary->head = NULL;
 
-    p = dictionary->head;
-    free( dictionary );
+	while ( p != NULL)
+	{
+		if ( p->value != NULL )
+		{
+			free( (void *) p->value );
+		}
 
-    while ( p != NULL )
-    {
-        tParam * next;
-
-        // debugf( 3, "{%s}\n", p->value );
-        next = p->next;
-        free( (void *)p->value );
-        free( p );
-        p = next;
-    }
+		tParam * next = p->next;
+		free( p );
+		p = next;
+	}
 }
 
-string lookupHash( tHash hash )
+void destroyDictionary( tDictionary * dictionary )
 {
-    tPrintHashMapping * map = printHash;
-    while (map->key != 0)
-    {
-        if ( hash == map->key )
-        {
-            return map->label;
-        }
-        map++;
-    }
-    return "<unknown>";
+    emptyDictionary( dictionary );
+    free( dictionary );
 }
 
 void printDictionary( tDictionary * dictionary )

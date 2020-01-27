@@ -1,0 +1,46 @@
+//
+// Created by paul on 1/14/20.
+//
+
+prefix = "Keyword"
+
+# the character mapping array
+# array starts out mapping one-to-one, i.e. input = output
+#
+mappings:
+{
+    # make the generated hashes case-insensitive
+    ignoreCase = true
+
+    # mark these characters as 'kKeywordSeparator'
+    Separator = " ._-"
+
+    # mark the different styles of brackets as equivalent
+    LBracket = "({["
+    RBracket = ")}]"
+}
+
+# the strings to hash into the enum
+# if there's a comma, first string is for symbol, second is to hash
+#
+keywords = [
+    "Basename",
+    "Country",
+    "DateRecorded",
+    "DestSeries",
+    "Destination",
+    "Episode",
+    "Execute",
+    "Extension",
+    "FirstAired",
+    "NullTermination",
+    "Path",
+    "Season",
+    "SeasonFolder",
+    "Series",
+    "Source",
+    "Stdin",
+    "Template",
+    "Title",
+    "Year"
+]

@@ -29,255 +29,68 @@
 
 #include "dictionary.h"
 
-typedef enum
-{
-    kIgnore   = ' ', // do not start at zero - avoid possible confusion with string termination
-    kNumber   = '0',
-    kLBracket = '(',
-    kRBracket = ')'
-} tCharClass;
+/*  hashes for patterns we are scanning for in the filename
 
+    this hash table is used to generate hashes used to match patterns.
+    it maps all digits to the same value, maps uppercase letters to
+    lowercase, and ignores several characters completely.
+ */
+#include "patterns.h"
+
+/*
+   Hashes for the keywords/parameter names in the template. This hash table is also
+   used for series names.
+
+   Periods are ignored, because the trailing one is often omitted of series like
+   "S.W.A.T." and "Marvel's Agents of S.H.I.E.L.D.". By ignoring periods,
+   "S.W.A.T.", "S.W.A.T" and "SWAT" will all result in the same hash value.
+
+   Since periods may also be used as a separator, we have to treat ' ' and '_' as
+   equivalent, or the hash for a space-separated name won't match the hash of a
+   period- or underscore-seperated one.
+
+   In other words, ' ', '_' and '.' do not contribute to the series hash. Similarly,
+   apostrophes are also often omitted ("Marvel's" becomes "Marvels"), so it is
+   similarly ignored when generating a hash, along with '?' (e.g. "Whose Line Is It
+   Anyway?") and '!' ("I'm a Celebrity...Get Me Out of Here!").
+
+   "Marvel's Agents of S.H.I.E.L.D. (2017)" is perhaps one of the most difficult
+   matching examples I've seen in the wild. There are so many ways to mangle that.
+
+   ':' is usually converted to '-' or omitted entirely, so ignore those, too.
+
+   Left and right brackets are also mapped to be equivalent, e.g. [2017] has the
+   same hash as (2017).
+ */
+#include "keywords.h"
+
+string gMyName;
 int gDebugLevel = 3;
+unsigned int gNextYear = 1895;
 
-/*
- * this hash table is used to generate hashes used to match patterns.
- * it maps all digits to the same value, maps uppercase letters to
- * lowercase, and ignores several characters completely.
- */
-tCharClass hashPattern[256] = {
-    '\0',               0x01,               0x02,               0x03,
-    0x04,               0x05,               0x06,               0x07,
-    0x08,               0x09, /* TAB */     0x0a, /* LF */      0x0b,
-    0x0c,               0x0d, /* CR */      0x0e,               0x0f,
-    0x10,               0x11,               0x12,               0x13,
-    0x14,               0x15,               0x16,               0x17,
-    0x18,               0x19,               0x1a,               0x1b,
-    0x1c,               0x1d,               0x1e,               0x1f,
-    kIgnore, /* ' ' */  kIgnore, /* ! */    '"',                '#',
-    '$',                '%',                '&',                kIgnore, /* ' */
-    '(',                ')',                '*',                '+',
-    ',',                kIgnore, /* - */    kIgnore, /* . */    '/',
-    kNumber, /* 0 */    kNumber, /* 1 */    kNumber, /* 2 */    kNumber, /* 3 */
-    kNumber, /* 4 */    kNumber, /* 5 */    kNumber, /* 6 */    kNumber, /* 7 */
-    kNumber, /* 8 */    kNumber, /* 9 */    ':',                ';',
-    '<',                '=',                '>',                kIgnore, /* ? */
-    '@',                'a',                'b',                'c',    /* map uppercase to lowercase */
-    'd',                'e',                'f',                'g',
-    'h',                'i',                'j',                'k',
-    'l',                'm',                'n',                'o',
-    'p',                'q',                'r',                's',
-    't',                'u',                'v',                'w',
-    'x',                'y',                'z',                '[',
-    '\\',               ']',                '^',                kIgnore, /* _ */
-    '`',                'a',                'b',                'c',
-    'd',                'e',                'f',                'g',
-    'h',                'i',                'j',                'k',
-    'l',                'm',                'n',                'o',
-    'p',                'q',                'r',                's',
-    't',                'u',                'v',                'w',
-    'x',                'y',                'z',                '{',
-    '|',                '}',                '~',                0x7f,
-#ifndef USE_EXTENDED_ASCII
-    0x80,               0x81,               0x82,               0x83,
-    0x84,               0x85,               0x86,               0x87,
-    0x88,               0x89,               0x8a,               0x8b,
-    0x8c,               0x8d,               0x8e,               0x8f,
-    0x90,               0x91,               0x92,               0x93,
-    0x94,               0x95,               0x96,               0x97,
-    0x98,               0x99,               0x9a,               0x9b,
-    0x9c,               0x9d,               0x9e,               0x9f,
-    0xa0,               0xa1,               0xa2,               0xa3,
-    0xa4,               0xa5,               0xa6,               0xa7,
-    0xa8,               0xa9,               0xaa,               0xab,
-    0xac,               0xad,               0xae,               0xaf,
-    0xb0,               0xb1,               0xb2,               0xb3,
-    0xb4,               0xb5,               0xb6,               0xb7,
-    0xb8,               0xb9,               0xba,               0xbb,
-    0xbc,               0xbd,               0xbe,               0xbf,
-    0xc0,               0xc1,               0xc2,               0xc3,
-    0xc4,               0xc5,               0xc6,               0xc7,
-    0xc8,               0xc9,               0xca,               0xcb,
-    0xcc,               0xcd,               0xce,               0xcf,
-    0xd0,               0xd1,               0xd2,               0xd3,
-    0xd4,               0xd5,               0xd6,               0xd7,
-    0xd8,               0xd9,               0xda,               0xdb,
-    0xdc,               0xdd,               0xde,               0xdf,
-    0xe0,               0xe1,               0xe2,               0xe3,
-    0xe4,               0xe5,               0xe6,               0xe7,
-    0xe8,               0xe9,               0xea,               0xeb,
-    0xec,               0xed,               0xee,               0xef,
-    0xf0,               0xf1,               0xf2,               0xf3,
-    0xf4,               0xf5,               0xf6,               0xf7,
-    0xf8,               0xf9,               0xfa,               0xfb,
-    0xfc,               0xfd,               0xfe,               0xff
-#else
-    0x80,               0x81,               0x82,               0x83,
-    0x84,               0x85,               0x86,               0x87,
-    0x88,               0x89,               'S',                '\'',
-    0x8c,               0x8d,               'Z',                0x8f,
-    0x80,               '\'',               '\'',               '"',
-    '"',                '*',                '-',                '-',
-    '~',                0x99,               'S',                '\'',
-    0x9c,               0x9d,               'z',                'Y',
-    ' ',                '!',                0xa2,               0xa3,
-    0xa4,               0xa5,               '|',                0xa7,
-    0xa8,               0xa9,               0xaa,               '"',
-    0xac,               0xad,               0xae,               0xaf,
-    0xb0,               0xb1,               0xb2,               0xb3,
-    0xb4,               0xb5,               0xb6,               0xb7,
-    0xb8,               0xb9,               0xba,               '"',
-    0xbc,               0xbd,               0xbe,               0xbf,
-    'A',                'A',                'A',                'A',
-    'A',                'A',                0xc6,               'C',
-    'E',                'E',                'E',                'E',
-    'I',                'I',                'I',                'I',
-    'D',                'N',                'O',                'O',
-    'O',                'O',                'O',                'x',
-    'O',                'U',                'U',                'U',
-    'U',                'Y',                0xde,               0xdf,
-    'a',                'a',                'a',                'a',
-    'a',                'a',                0xe6,               'c',
-    'e',                'e',                'e',                'e',
-    'i',                'i',                'i',                'i',
-    'o',                'n',                'o',                'o',
-    'o',                'o',                'o',                0xf7,
-    'o',                'u',                'u',                'u',
-    'u',                'y',                0xfe,               'y'
-#endif
-};
+tDictionary * gMainDict;
+tDictionary * gPathDict;
+tDictionary * gFileDict;
+tDictionary * gSeriesDict;
 
-/*
- * This hash table is used for series, and parameter names.
- *
- * Period is ignored, because the last one is often omitted of series like 'S.W.A.T.'
- * and 'Marvel's Agents of S.H.I.E.L.D.'. By ignoring it, 'S.W.A.T.', 'S.W.A.T' and
- * 'SWAT' will all result in the same hash value.
- *
- * Since periods can also be used as a separator, we have to treat ' ' and '_'
- * the same way, or the hash for a space-separated name won't match the hash of
- * a period-separated one.
- *
- * In other words, ' ', '_' and '.' do not contribute to the series hash. Similarly
- * '\'' is also often omitted ("Marvel's" becomes "Marvels"), so is similarly
- * ignored when generating a hash, along with '?' (e.g. 'Whose Line Is It Anyway?'
- * and '!' ('Emergency!')
- *
- * "Marvel's Agents of S.H.I.E.L.D. (2017)" as a destination folder is perhaps one
- * of the most difficult matching examples I've seen in the wild. There are so many
- * variations of how to mangle that.
- *
- * ':' is usually converted to '-' or omitted entirely, so ignore those, too.
- *
- * Left and right brackets are also mapped to be equivalent, e.g. [2017] has the
- * same hash as (2017).
- */
-tCharClass hashKey[256] = {
-    '\0',               0x01,               0x02,               0x03,
-    0x04,               0x05,               0x06,               0x07,
-    0x08,               kIgnore, /* TAB */  kIgnore, /* LF */   0x0b,
-    0x0c,               kIgnore, /* CR */   0x0e,               0x0f,
-    0x10,               0x11,               0x12,               0x13,
-    0x14,               0x15,               0x16,               0x17,
-    0x18,               0x19,               0x1a,               0x1b,
-    0x1c,               0x1d,               0x1e,               0x1f,
-    kIgnore, /* ' ' */  kIgnore, /* ! */    '"',                '#',
-    '$',                '%',                '&',                kIgnore,   /* ' */
-    kLBracket, /* ( */  kRBracket, /* ) */  '*',                '+',
-    ',',                kIgnore, /* - */    kIgnore, /* . */    '/',
-    '0',                '1',                '2',                '3',
-    '4',                '5',                '6',                '7',
-    '8',                '9',                kIgnore, /* : */    ';',
-    '<',                '=',                '>',                kIgnore, /* ? */
-    '@',                'a',                'b',                'c',   /* map uppercase to lowercase */
-    'd',                'e',                'f',                'g',
-    'h',                'i',                'j',                'k',
-    'l',                'm',                'n',                'o',
-    'p',                'q',                'r',                's',
-    't',                'u',                'v',                'w',
-    'x',                'y',                'z',                kLBracket, /* [ */
-    '\\',               kRBracket, /* ] */  '^',                kIgnore,   /* _ */
-    '`',                'a',                'b',                'c',
-    'd',                'e',                'f',                'g',
-    'h',                'i',                'j',                'k',
-    'l',                'm',                'n',                'o',
-    'p',                'q',                'r',                's',
-    't',                'u',                'v',                'w',
-    'x',                'y',                'z',                kLBracket, /* { */
-    '|',                kRBracket, /* } */  '~',                0x7f,
-#ifndef USE_EXTENDED_ASCII
-    0x80,               0x81,               0x82,               0x83,
-    0x84,               0x85,               0x86,               0x87,
-    0x88,               0x89,               0x8a,               0x8b,
-    0x8c,               0x8d,               0x8e,               0x8f,
-    0x90,               0x91,               0x92,               0x93,
-    0x94,               0x95,               0x96,               0x97,
-    0x98,               0x99,               0x9a,               0x9b,
-    0x9c,               0x9d,               0x9e,               0x9f,
-    0xa0,               0xa1,               0xa2,               0xa3,
-    0xa4,               0xa5,               0xa6,               0xa7,
-    0xa8,               0xa9,               0xaa,               0xab,
-    0xac,               0xad,               0xae,               0xaf,
-    0xb0,               0xb1,               0xb2,               0xb3,
-    0xb4,               0xb5,               0xb6,               0xb7,
-    0xb8,               0xb9,               0xba,               0xbb,
-    0xbc,               0xbd,               0xbe,               0xbf,
-    0xc0,               0xc1,               0xc2,               0xc3,
-    0xc4,               0xc5,               0xc6,               0xc7,
-    0xc8,               0xc9,               0xca,               0xcb,
-    0xcc,               0xcd,               0xce,               0xcf,
-    0xd0,               0xd1,               0xd2,               0xd3,
-    0xd4,               0xd5,               0xd6,               0xd7,
-    0xd8,               0xd9,               0xda,               0xdb,
-    0xdc,               0xdd,               0xde,               0xdf,
-    0xe0,               0xe1,               0xe2,               0xe3,
-    0xe4,               0xe5,               0xe6,               0xe7,
-    0xe8,               0xe9,               0xea,               0xeb,
-    0xec,               0xed,               0xee,               0xef,
-    0xf0,               0xf1,               0xf2,               0xf3,
-    0xf4,               0xf5,               0xf6,               0xf7,
-    0xf8,               0xf9,               0xfa,               0xfb,
-    0xfc,               0xfd,               0xfe,               0xff
-#else
-    0x80,               0x81,               0x82,               0x83,
-    0x84,               0x85,               0x86,               0x87,
-    0x88,               0x89,               'S',                '\'',
-    0x8c,               0x8d,               'Z',                0x8f,
-    0x80,               '\'',               '\'',               '"',
-    '"',                '*',                '-',                '-',
-    '~',                0x99,               'S',                '\'',
-    0x9c,               0x9d,               'z',                'Y',
-    ' ',                '!',                0xa2,               0xa3,
-    0xa4,               0xa5,               '|',                0xa7,
-    0xa8,               0xa9,               0xaa,               '"',
-    0xac,               0xad,               0xae,               0xaf,
-    0xb0,               0xb1,               0xb2,               0xb3,
-    0xb4,               0xb5,               0xb6,               0xb7,
-    0xb8,               0xb9,               0xba,               '"',
-    0xbc,               0xbd,               0xbe,               0xbf,
-    'A',                'A',                'A',                'A',
-    'A',                'A',                0xc6,               'C',
-    'E',                'E',                'E',                'E',
-    'I',                'I',                'I',                'I',
-    'D',                'N',                'O',                'O',
-    'O',                'O',                'O',                'x',
-    'O',                'U',                'U',                'U',
-    'U',                'Y',                0xde,               0xdf,
-    'a',                'a',                'a',                'a',
-    'a',                'a',                0xe6,               'c',
-    'e',                'e',                'e',                'e',
-    'i',                'i',                'i',                'i',
-    'o',                'n',                'o',                'o',
-    'o',                'o',                'o',                0xf7,
-    'o',                'u',                'u',                'u',
-    'u',                'y',                0xfe,               'y'
-#endif
-};
+string gCachedPath   = NULL;
+string gCachedSeries = NULL;
 
+typedef struct sToken
+{
+	struct sToken * next;
+	string        start;
+	string        end;
+	tHash         hash;
+	unsigned char seperator;
+} tToken;
+
+tToken gTokenList;
 
 /**
  * trim any trailing whitespace from the end of the string
  *
- * @param line
+ * @param line	line to be trimmed
  */
 void trimTrailingWhitespace(char * line)
 {
@@ -298,26 +111,76 @@ void trimTrailingWhitespace(char * line)
     }
 }
 
+string lookupHash(tHash hash)
+{
+	tKeywordHashMapping * keywordMap = KeywordHashLookup;
+
+	while ( keywordMap->key != 0 )
+	{
+		if ( hash == keywordMap->key )
+		{
+			return keywordMap->label;
+		}
+		keywordMap++;
+	}
+
+	tPatternHashMapping * patternMap = PatternHashLookup;
+
+	while ( patternMap->key != 0 )
+	{
+		if ( hash == patternMap->key )
+		{
+			return patternMap->label;
+		}
+		patternMap++;
+	}
+
+	return "<unknown>";
+}
 
 /**
- * this hashes the 'series' using the 'key' hash table,
- * since comparing series names needs different logic
- * than scanning for patterns.
- * Separators (spaces, periods, underscores) are ignored
- * completely. As are \', !, amd ?, since those are
- * frequently omitted. Upper case letters are mapped to
- * lower case since those are also very inconsistent
- * (no UTF-8 handling, though). and '&' is expanded to
- * 'and' in the hash, so both forms will match.
+ * @brief look in the three dictionaries for the first occurance of a hash value
+ * @param hash
+ * @return
  */
-void addSeries( tDictionary * dictionary, string series )
+string findParam( tHash hash )
+{
+	string result;
+
+	result = findValue( gFileDict, hash );
+	if ( result == NULL )
+	{
+		result = findValue( gPathDict, hash );
+	}
+	if ( result == NULL )
+	{
+		result = findValue( gMainDict, hash );
+	}
+	return result;
+}
+
+/**
+   Hashes the 'series' using the 'keyword' hash table, since comparing series names needs
+   slightly different logic than scanning for patterns. Separators (spaces, periods,
+   underscores) are ignored completely. As are \', !, amd ?, since those are frequently
+   omitted. Upper case letters are mapped to lower case since those are also very
+   inconsistent (no UTF-8 handling yet, though). and '&' is expanded to 'and' in the
+   hash, so both forms will hash to the same value.
+
+   Since a series name may or may not be suffixed by a year or country surrounded
+   by brackets (e.g. (2019) or (US)). So a hash is added whenever a left bracket
+   is encountered, so the hash for 'Some Series' and 'Some Series (2019)' are both
+   stored in the series dictionary, so there will be a hash available to match
+   either with or without the suffix.
+ */
+void addSeries( string series )
 {
     tHash result = 0;
     unsigned char * s = (unsigned char *)series;
-    unsigned char  c;
+    unsigned char   c;
 
     do {
-        c = hashKey[ *s++ ];
+        c = kKeywordMap[ *s++ ];
         switch ( c )
         {
         case '\0':
@@ -326,36 +189,37 @@ void addSeries( tDictionary * dictionary, string series )
             // we hash the '&' character as if 'and' was used. so both forms generate the same hash
             // e.g. the hash of 'Will & Grace' will match the hash of 'Will and Grace'
         case '&':
-            result ^= result * 43 + 'a';
-            result ^= result * 43 + 'n';
-            result ^= result * 43 + 'd';
+            result = fKeywordHashChar( result, 'a' );
+            result = fKeywordHashChar( result, 'n' );
+            result = fKeywordHashChar( result, 'd' );
             break;
 
-        case kLBracket:
-            // we found something bracketed, e.g. (uk) or (2019)
-            // so we also add the intermediate hash to the dictionary,
-            // before we hash the bracketed content. Then the same series with
-            // the year omitted, for example,  will still match something.
-            // Though we can't do much about a file that only has 'MacGyver'
-            // when it's actually part of the 'MacGyver (2016)' series.
+        case kKeywordLBracket:
+            // we found something bracketed, e.g. (uk) or (2019), so we also add the
+            // intermediate hash to the dictionary, before we hash the bracketed content.
+            // Then if we hash the same series with the year omitted, for example, will
+            // still match something. Though we can't do much about a file that omits a
+            // a year or country, e.g. 'MacGyver' instead of 'MacGyver (2016)', or
+            // 'Hell's Kitchen' instead of 'Hell's Kitchen (US)'
             //
-            // Note: if there are multiple left brackets, there will be multiple hashes added
+            // Note: if there are multiple left brackets encountered, there will be
+            // multiple intermediate hashes added.
 
-            addParam( dictionary, result, series );
-            result ^= result * 43 + c;
+            addParam( gSeriesDict, result, series );
+            result = fKeywordHashChar( result, c );
             break;
 
         default:
-            if (c != kIgnore)
+            if ( c != kKeywordSeparator )
             {
-                result ^= result * 43 + c;
+                result = fKeywordHashChar( result, c );
             }
             break;
         }
     } while ( c != '\0' );
 
     // also add the hash of the full string, including any trailing bracketed stuff
-    addParam( dictionary, result, series );
+    addParam( gSeriesDict, result, series );
 }
 
 static int scanDirFilter( const struct dirent * entry)
@@ -368,7 +232,7 @@ static int scanDirFilter( const struct dirent * entry)
     return result;
 }
 
-int buildSeriesDictionary( tDictionary * dictionary, string path )
+int buildSeriesDictionary( string path )
 {
     struct dirent **namelist;
     int n;
@@ -381,7 +245,7 @@ int buildSeriesDictionary( tDictionary * dictionary, string path )
 
     for ( int i = 0; i < n; ++i )
     {
-        addSeries( dictionary, namelist[ i ]->d_name );
+        addSeries( namelist[ i ]->d_name );
         free( namelist[ i ] );
     }
     free(namelist);
@@ -391,117 +255,113 @@ int buildSeriesDictionary( tDictionary * dictionary, string path )
     return 0;
 }
 
-#if 0
-/* this may execute more than once, longest match will be returned */
-string lookupSeries( tDictionary * dictionary, string series )
-{
-    string result = NULL;
-    string destSeries;
-    tHash hash = 0;
-    unsigned char * s;
-    unsigned char   c;
-
-    s = (unsigned char *)series;
-    do {
-        c = hashKey[ *s++ ];
-        switch ( c )
-        {
-        case kIgnore:
-        case '\0':
-            debugf(3, "checking: %016lx\n", hash);
-
-            destSeries = findValue( dictionary, hash);
-            if (destSeries != NULL)
-            {
-                debugf(3, "match: %s\n", destSeries);
-                result = destSeries;
-            }
-            break;
-
-                /* we hash the '&' character as if 'and' was used. so both forms generate the same
-                   hash e.g. the hash of 'Will & Grace' will match the hash of 'Will and Grace' */
-        case '&':
-            hash ^= hash * 43 + 'a';
-            hash ^= hash * 43 + 'n';
-            hash ^= hash * 43 + 'd';
-            break;
-
-        case kLBracket:
-            /* we found something bracketed, e.g. (uk) or (2019) so we
-               also check the intermediate hash against the dictionary */
-            debugf( 3, "checking: %016lx\n", hash);
-
-            destSeries = findValue( dictionary, hash );
-            if (destSeries != NULL )
-            {
-                result = destSeries;
-            }
-            hash ^= hash * 43 + c;
-            break;
-
-        default:
-            if (c != kIgnore)
-            {
-                hash ^= hash * 43 + c;
-            }
-            break;
-        }
-    } while ( c != '\0' );
-
-    return result;
-}
-#endif
-
-
-void addSeasonEpisode( tDictionary * dictionary, unsigned int season, unsigned int episode )
+void addSeasonEpisode( unsigned int season, unsigned int episode )
 {
     char  temp[50];
 
     snprintf( temp, sizeof(temp), "%02u", season );
-    addParam( dictionary, kKeySeason, temp );
-    if ( season == 0 )
+    addParam( gFileDict, kKeywordSeason, temp );
+    if ( season == 0 || episode == 0 )
     {
-        addParam( dictionary, kKeySeasonFolder, "Specials" );
+	    addParam( gFileDict, kKeywordSeasonFolder, "Specials" );
     }
     else
     {
         snprintf( temp, sizeof(temp), "Season %02u", season );
-        addParam( dictionary, kKeySeasonFolder, temp );
+	    addParam( gFileDict, kKeywordSeasonFolder, temp );
     }
 
-    snprintf( temp, sizeof(temp), "%02u", episode );
-    addParam( dictionary, kKeyEpisode, temp );
+	snprintf( temp, sizeof(temp), "%02u", episode );
+    addParam( gFileDict, kKeywordEpisode, temp );
 }
 
-int storeParam( tDictionary *dictionary, tHash hash, string value )
+void storeSeries( string series )
 {
-    // struct tm firstAired;
-    // struct tm dateRecorded;
-    // struct tm year;
+    string result = series;
+    string ptr, end;
+    tHash hash;
+    unsigned char c;
+
+    ptr  = series;
+    hash = 0;
+
+    addParam( gFileDict, kKeywordSeries, series );
+
+    // regenerate the hash incrementally, checking at each separator.
+    // remember the longest match, i.e. keep looking until the end of the string
+    do {
+        c = kKeywordMap[ (unsigned char)*ptr ];
+        switch ( c )
+        {
+        case kKeywordSeparator:
+        case '\0':
+        	/* let's see if we have a match */
+            debugf( 3, "checking: 0x%016lx\n", hash );
+
+            string match = findValue( gSeriesDict, hash );
+            if ( match != NULL)
+            {
+                result = match;
+                debugf( 3, "matched %s\n", result );
+                end = ptr;
+            }
+            break;
+
+        case '&':
+            hash = fPatternHashChar( hash, 'a' );
+            hash = fPatternHashChar( hash, 'n' );
+            hash = fPatternHashChar( hash, 'd' );
+            break;
+
+        default:
+            hash = fPatternHashChar( hash, c );
+            break;
+        };
+        ptr++;
+    } while ( c != '\0' );
+
+    if ( result != series )
+    {
+        if ( *end != '\0' )
+        {
+            /* if the run is longer than the match with the series name,
+               then store the trailing remnant as the episode title */
+            addParam( gFileDict, kKeywordTitle, (string) end + 1 );
+	        *(char *) end = '\0';
+        }
+    }
+	addParam( gFileDict, kKeywordDestSeries, result );
+}
+
+int storeToken( tHash hash, string value )
+{
     unsigned int season  = 0;
     unsigned int episode = 0;
+    unsigned int year    = 0;
+    char temp[20];
+    string seriesName;
 
     switch (hash)
     {
-    case kPattern_SnnEnn:   // we found 'SnnEnn' or
-    case kPattern_SyyyyEnn: // SyyyyEnnn
-    case kPattern_SnnEn:    // SnnEn
-    case kPattern_SnEnn:    // SnEnn
-    case kPattern_SnEn:     // SnEn
+    case kPatternSnnEnn:   // we found 'SnnEnn' or
+    case kPatternSyyyyEnn: // SyyyyEnnn
+    case kPatternSnnEn:    // SnnEn
+    case kPatternSnEnn:    // SnEnn
+    case kPatternSnEn:     // SnEn
         debugf( 3,"SnnEnn: %s\n", value);
         sscanf( value, "%*1c%u%*1c%u", &season, &episode ); // ignore characters since we don't know their case
-        addSeasonEpisode( dictionary, season, episode );
+        addSeasonEpisode( season, episode );
         break;
 
-    case kPattern_Ennn:
+    case kPatternEnnn:
         debugf( 3,"Ennn: %s\n", value);
         sscanf( value, "%*1c%u", &episode ); // ignore characters since we don't know their case
         season = episode / 100;
         episode %= 100;
-        addSeasonEpisode( dictionary, season, episode );
+        addSeasonEpisode( season, episode );
         break;
 
-    case kPattern_Ennnn:
+    case kPatternEnnnn:
         debugf( 3,"Ennnn: %s\n", value);
         sscanf( value, "%*1c%u", &episode ); // ignore characters since we don't know their case
         unsigned int divisor = 100;
@@ -513,31 +373,56 @@ int storeParam( tDictionary *dictionary, tHash hash, string value )
         }
         season = episode / divisor;
         episode %= divisor;
-        addSeasonEpisode( dictionary, season, episode );
+        addSeasonEpisode( season, episode );
         break;
 
-    case kPattern_nXnn:
-    case kPattern_nnXnn:
-        debugf( 3,"nnXnn: %s\n", value);
+    case kPatternnXnn:
+    case kPatternnnXnn:
+        debugf( 3, "nnXnn: %s\n", value);
         sscanf( value, "%u%*1c%u", &season, &episode ); // ignore characters since we don't know their case
-        addSeasonEpisode( dictionary, season, episode );
+        addSeasonEpisode( season, episode );
         break;
 
-    case kPattern_Date:
-        debugf( 3,"yyyy-mm-dd: %s\n", value);
-        addParam( dictionary, kKeyFirstAired, value );
+    case kPatternYear:
+	    sscanf( value, "%*1c%u%*1c", &year ); // ignore characters since we don't know their case
+        if ( 1890 < year && year <= gNextYear )
+        {
+            snprintf( temp, sizeof( temp ), "%u", year );
+            addParam( gFileDict, kKeywordYear, temp );
+        }
+	    debugf( 3, "year: %u\n", year );
+	    break;
+
+    case kPatternCountryUSA:
+    	addParam( gFileDict, kKeywordCountry, "USA" );
+    	break;
+
+    case kPatternCountryUS:
+	    addParam( gFileDict, kKeywordCountry, "US" );
+	    break;
+
+    case kPatternCountryUK:
+	    addParam( gFileDict, kKeywordCountry, "UK" );
+	    break;
+
+    case kPatternNoMatch:
+        seriesName = findParam( kKeywordSeries );
+        if ( seriesName == NULL )
+        {
+            debugf( 3, "series: %s\n", value );
+            storeSeries( value );
+        }
+        else
+        {
+            debugf( 3, "title: %s\n", value );
+            addParam( gFileDict, kKeywordTitle, value );
+        }
         break;
 
-    case kPattern_DateTime:
-        debugf( 3,"yyyy-mm-dd-hhmm: %s\n", value);
-        addParam( dictionary, kKeyDateRecorded, value );
-        break;
-
-    case kPattern_TwoDigits:
-    case kPattern_FourDigits:
-    case kPattern_SixDigits:
-        break;
-
+    // kPatternTwoDigits:
+    // kPatternFourDigits:
+    // kPatternSixDigits:
+    // kPatternEightDigits:
     default:
         break;
     }
@@ -548,222 +433,306 @@ tHash checkHash( tHash hash)
 {
     switch (hash)
     {
-    case kPattern_SnnEnn:   // SnnEnn
-    case kPattern_SyyyyEnn: // SnnnnEnn
-    case kPattern_SnnEn:    // SnnEn
-    case kPattern_SnEnn:    // SnEnn
-    case kPattern_SnEn:     // SnEn
-    case kPattern_Ennn:     // Ennn
-    case kPattern_Ennnn:    // Ennnn
-    case kPattern_nXnn:     // nXnn
-    case kPattern_nnXnn:    // nnXnn
-//    case kPattern_Date:     // yyyy-mm-dd
-//    case kPattern_DateTime: // yyyy-mm-dd-hhmm
-    case kPattern_TwoDigits:
-    case kPattern_FourDigits:
-    case kPattern_SixDigits:
-        break;
+    case kPatternSnnEnn:       // SnnEnn
+    case kPatternSyyyyEnn:     // SnnnnEnn
+    case kPatternSnnEn:        // SnnEn
+    case kPatternSnEnn:        // SnEnn
+    case kPatternSnEn:         // SnEn
+    case kPatternEnnn:         // Ennn
+    case kPatternEnnnn:        // Ennnn
+    case kPatternnXnn:         // nXnn
+    case kPatternnnXnn:        // nnXnn
+    case kPatternTwoDigits:    // nn
+    case kPatternFourDigits:   // nnnn
+    case kPatternSixDigits:    // nnnnnn
+    case kPatternEightDigits:  // nnnnnnnn
+    case kPatternCountryUSA:   // (USA)
+    case kPatternCountryUS:    // (US)
+    case kPatternCountryUK:    // (UK)
+    case kPatternYear:         // (nnnn)
+    	break;
 
     default:
-        hash = kPattern_noMatch;
+        hash = kPatternNoMatch;
         break;
     }
     return hash;
 }
 
-
-
-int parseName( tDictionary *fileDict, tDictionary *seriesDict, string name )
+void tokenizeName( string originalName )
 {
-    string temp = strdup(name); // copy it, because we'll terminate strings in place as we go
+	gTokenList.next = NULL;
 
-    if (temp != NULL) {
-        struct {
-            unsigned char * start;
-            unsigned char * end;
-            tHash hash;
-            unsigned char seperator;
-        } tokens[32];
+	string name = strdup( originalName ); // copy it, because we'll terminate strings in place as we go
 
-        unsigned int i, j, k;
-        unsigned char c;
+	if ( name != NULL)
+	{
+		unsigned char c;
 
-        unsigned char *start = (unsigned char *) temp;
-        unsigned char *ptr = start;
-        tHash hash = 0;
+		string start = name;
+		string ptr   = start;
+		tHash  hash  = 0;
 
-        i = 1;
+		tToken * token = &gTokenList;
 
-        start = (unsigned char *) temp;
-        ptr = start;
-        hash = 0;
-        tokens[0].hash = kPattern_noMatch;
-        tokens[0].start = ptr;
+		do {
+			c = kPatternMap[ *(unsigned char *)ptr ];
+			switch ( c )
+			{
+			case kPatternSeperator:
+			case '\0':
+				// reached the end of a token
+				token->next = calloc( 1, sizeof(tToken) );
+				token = token->next;
+				if ( token != NULL )
+				{
+					token->hash      = checkHash( hash );
+					token->start     = start;
+					token->end       = ptr;
+					token->seperator = *ptr;
+					*(char *)ptr = '\0';
+				}
+				// only prepare for the next run if we're nt at the end of the string
+				if ( c != '\0' )
+				{
+					// skip over a run of kPatternSeperator, if present (e.g. ' - ')
+					do { ptr++; } while ( kPatternMap[ *(unsigned char *)ptr ] == kPatternSeperator );
+					start = ptr;
+					hash = 0;
+				}
+				break;
 
-        do {
-            c = hashPattern[*ptr];
-            switch (c) {
-                case kIgnore:
-                case '\0':
-                    debugf(3, "hash: 0x%016lx \'%s\'\n", hash, start );
-                    tokens[i].hash      = checkHash( hash );
-                    tokens[i].start     = start;
-                    tokens[i].end       = ptr;
-                    tokens[i].seperator = *ptr;
-                    i++;
-                    hash = 0;
-                    start = ptr + 1;
-                    break;
+			case '&':
+				hash = fPatternHashChar( hash, 'a' );
+				hash = fPatternHashChar( hash, 'n' );
+				hash = fPatternHashChar( hash, 'd' );
+				ptr++;
+				break;
 
-                case '&':
-                    hash ^= hash * 43 + 'a';
-                    hash ^= hash * 43 + 'n';
-                    hash ^= hash * 43 + 'd';
-                    break;
+			default:
+				hash = fPatternHashChar( hash, c );
+				ptr++;
+				break;
+			};
+		} while ( c != '\0' );
 
-                default:
-                    hash ^= hash * 43 + c;
-                    break;
-            };
-            ptr++;
-        } while (c != '\0' && i < 32);
+		token = gTokenList.next;
+		while ( token != NULL )
+		{
+			debugf( 3, "token: \'%s\', \'%s\' (%c)\n", lookupHash( token->hash ), token->start, token->seperator );
+			token = token->next;
+		}
+	}
+}
 
-        unsigned int runCount = 0;
+void freeTokenList( void )
+{
+    tToken *nextToken;
+    tToken * token = gTokenList.next;
+    gTokenList.next = NULL;
+    while ( token != NULL )
+    {
+        nextToken = token->next;
+        free( token );
+        token = nextToken;
+    }
+}
 
-        j = k = 1;
-        while ( k < i )
+/*
+ * Channels DVR:
+ *   air date: yyyy-mm-dd
+ *   recorded: yyyy-mm-dd-hhss
+ * TVMosaic
+ *   recorded: hhss-yyyymmdd
+ *
+ */
+void mergeDigits( void )
+{
+    tToken * token[4];
+
+    token[0] = gTokenList.next;
+
+    while ( token[0] != NULL)
+    {
+        token[1] = token[0]->next;
+        switch ( token[0]->hash )
         {
-            if ( j != k )
+            // Channels DVR: YYYY-mm-dd
+            //               YYYY-mm-dd-hhss
+            //     TVMosaic: HHSS-yyyymmdd
+        case kPatternFourDigits:
+            if ( token[1] != NULL)
             {
-                tokens[j].start = tokens[k].start;
-                tokens[j].hash  = tokens[k].hash;
-            }
-            /* merge adjacent tokens with unknown hashes to a single run */
-            if ( tokens[k].hash == kPattern_noMatch )
-            {
-                runCount++;
+	            token[2] = token[1]->next;
 
-                while ( tokens[k].hash == kPattern_noMatch && k < i )
+	            switch ( token[1]->hash )
                 {
-                    k++;
-                }
-                k--;
-            }
-            if ( j != k )
-            {
-                tokens[j].end       = tokens[k].end;
-                tokens[j].seperator = tokens[k].seperator;
-            }
-            *tokens[j].end = '\0';
-
-            string series = NULL;
-            string start = (string) tokens[j].start;
-            unsigned char * end;
-
-            ptr  = (unsigned char *) start;
-            hash = 0;
-
-            if ( tokens[j].hash == kPattern_noMatch )
-            {
-                switch ( runCount )
-                {
-                case 1:
-                    do
+                    // Channels DVR: YYYY-MM-dd
+                    //               YYYY-MM-dd-hhss
+                case kPatternTwoDigits:
+                    if ( token[1]->seperator == '-' && token[2] != NULL)
                     {
-                        c = hashKey[*ptr];
-                        switch ( c )
+                        switch ( token[2]->hash )
                         {
-                        case kIgnore:
-                        case '\0': /* let's see if we have a match */
-                            debugf( 3, "checking: 0x%016lx\n", hash );
-
-                            string match = findValue( seriesDict, hash );
-                            if ( match != NULL)
+                            // Channels DVR: YYYY-MM-DD
+                            //               YYYY-MM-DD-hhss
+                        case kPatternTwoDigits:
+                            token[3] = token[2]->next;
+                            if (token[3] != NULL)
                             {
-                                series = match;
-                                debugf( 3, "matched %s\n", series );
-                                end = ptr;
+                                switch ( token[3]->hash )
+                                {
+                                case kPatternFourDigits:
+                                    // ok, looks like we have YYYY-MM-DD-HHSS
+                                    token[0]->next = token[3]->next;
+                                    *(char *) token[0]->end = '-';
+                                    *(char *) token[1]->end = '-';
+                                    *(char *) token[2]->end = '-';
+                                    token[0]->end  = token[3]->end;
+                                    token[0]->hash = kKeywordDateRecorded;
+                                    free( token[1] );
+                                    free( token[2] );
+                                    free( token[3] );
+                                    break;
+
+                                default:
+                                    // ok, looks like we have YYYY-MM-DD
+                                    token[0]->next = token[2]->next;
+                                    *(char *) token[0]->end = '-';
+                                    *(char *) token[1]->end = '-';
+                                    token[0]->end  = token[2]->end;
+                                    token[0]->hash = kKeywordFirstAired;
+                                    free( token[1] );
+                                    free( token[2] );
+                                    break;
+                                }
                             }
                             break;
 
-                        case '&':
-                            hash ^= hash * 43 + 'a';
-                            hash ^= hash * 43 + 'n';
-                            hash ^= hash * 43 + 'd';
-                            break;
-
                         default:
-                            hash ^= hash * 43 + c;
                             break;
-                        };
-                        ptr++;
-                    } while ( c != '\0' );
-
-                    if ( series != NULL)
-                    {
-                        addParam( fileDict, kKeyDestSeries, series );
-
-                        if ( *end != '\0' )
-                        {
-                            /* if the run is longer than the series name,
-                             * store the remanent as the episode title */
-                            addParam( fileDict, kKeyTitle, (string) end + 1 );
                         }
-                        *end = '\0';
-                        addParam( fileDict, kKeySeries, start );
-                    }
-                    else
-                    {
-                        addParam( fileDict, kKeyDestSeries, start );
-                        addParam( fileDict, kKeySeries, start );
                     }
                     break;
 
+	                // TVMosaic: HHSS-YYYYMMDD
+                case kPatternEightDigits:
+	                token[0]->next = token[1]->next;
+	                *(char *) token[0]->end = '-';
+	                token[0]->end  = token[1]->end;
+	                token[0]->hash = kKeywordDateRecorded;
+	                free( token[1] );
+	                break;
+
                 default:
-                    addParam( fileDict, kKeyTitle, start );
+                    token[0]->hash = kPatternNoMatch;
                     break;
                 }
             }
             else
             {
-                storeParam( fileDict, tokens[j].hash, (string) tokens[j].start );
+                // last token, therefore four trailing digits, no metapattern
+                token[0]->hash = kPatternNoMatch;
             }
-            j++;
-            k++;
+            break;
+
+        default:
+            // not kPatternFourDigits, ignore it.
+            break;
         }
-        i = j;
-
-
-        debugf( 3, "run count: %d\n", runCount );
-        for ( j = 1; j < i; j++ )
-        {
-            if ((j + 1) < i )
-            {
-                *(tokens[j + 1].start - 1) = '\0';
-            }
-            debugf( 3, "token: \'%s\', \'%s\' (%c)\n", lookupHash( tokens[j].hash ), tokens[j].start, tokens[j].seperator );
-        }
-
-        free((void *) temp );
+        token[0] = token[0]->next;
     }
+}
+
+void mergeNoMatch( void )
+{
+    tToken * token;
+    tToken * nextToken;
+
+	token = gTokenList.next;
+    while ( token != NULL)
+    {
+        nextToken = token->next;
+        if ( nextToken != NULL && token->hash == kPatternNoMatch && nextToken->hash == kPatternNoMatch )
+        {
+            // combine the two kPatternNoMatch tokens
+            token->next = nextToken->next;
+            *(char *)token->end = ' ';
+            token->end = nextToken->end;
+            free( nextToken );
+        }
+        else
+        {
+            token = token->next;
+        }
+    }
+
+	/* Some tokens should also be appended as a suffix, while also retaining the token */
+	token = gTokenList.next;
+	while ( token != NULL)
+	{
+		nextToken = token->next;
+		if ( token->hash == kPatternNoMatch && nextToken != NULL )
+		{
+			switch ( nextToken->hash )
+			{
+				/* The tokens we treat as suffixes */
+			case kPatternCountryUK:
+			case kPatternCountryUS:
+			case kPatternCountryUSA:
+			case kPatternYear:
+				/* extend the kPatternNoMatch token to include the suffix */
+				*(char *)token->end = ' ';
+				token->end = nextToken->end;
+				break;
+
+			default:
+				break;
+			}
+		}
+		token = token->next;
+	}
+}
+
+int parseName( string name )
+{
+    tToken * token = gTokenList.next;
+
+    tokenizeName( name );
+
+    mergeDigits();
+    mergeNoMatch();
+
+    debugf( 3, "%s\n", "after merging" );
+    token = gTokenList.next;
+    while ( token != NULL)
+    {
+        debugf( 3, "token: \'%s\', \'%s\' (%c)\n", lookupHash( token->hash ), token->start, token->seperator );
+
+	    storeToken( token->hash, token->start );
+	    token = token->next;
+    }
+
+    freeTokenList();
 
     return 0;
 }
+
 
 /*
  * carve up the path into directory path, basename and extension
  * then pass basename onto parseName() to be processed
  */
-int parsePath( tDictionary * fileDict, tDictionary * seriesDict, string path )
+int parsePath( string path )
 {
     int result = 0;
 
-    addParam( fileDict, kKeySource, path );
+    addParam( gFileDict, kKeywordSource, path );
 
     string lastPeriod = strrchr( path, '.' );
     if ( lastPeriod != NULL )
     {
-        addParam( fileDict, kKeyExtension, lastPeriod );
+        addParam( gFileDict, kKeywordExtension, lastPeriod );
     }
     else
     {
@@ -774,7 +743,7 @@ int parsePath( tDictionary * fileDict, tDictionary * seriesDict, string path )
     if ( lastSlash != NULL )
     {
         string p = strndup( path, lastSlash - path );
-        addParam( fileDict, kKeyPath, p );
+        addParam( gFileDict, kKeywordPath, p );
         free( (void *)p );
 
         ++lastSlash;
@@ -785,14 +754,14 @@ int parsePath( tDictionary * fileDict, tDictionary * seriesDict, string path )
     }
 
     string basename = strndup( lastSlash, lastPeriod - lastSlash );
-    addParam( fileDict, kKeyBasename, basename );
-    parseName( fileDict, seriesDict, basename );
+    addParam( gFileDict, kKeywordBasename, basename );
+    parseName( basename );
     free( (void *)basename );
 
     return result;
 }
 
-string buildString( tDictionary *mainDict, tDictionary *fileDict, string template )
+string buildString( string template )
 {
     string result = NULL;
     string t = template;
@@ -812,114 +781,104 @@ string buildString( tDictionary *mainDict, tDictionary *fileDict, string templat
             switch (c)
             {
             case '{':   // start of keyword
-                    k = t; // remember where the keyword starts
-                    c = *t++;
+                k = t; // remember where the keyword starts
 
-                    // scan the keyword and generate its hash
-                    hash = 0;
+                // scan the keyword and generate its hash
+                hash = 0;
 
-                    while ( c != '\0' && c != '}' && c != '?' )
+	            c = *t++;
+	            while ( c != '\0' && c != '}' && c != '?' )
+                {
+                    if ( kKeywordMap[ c ] != kKeywordSeparator ) /* we ignore some characters when calculating the hash */
                     {
-                        if ( hashKey[ c ] != kIgnore ) /* we ignore some characters when calculating the hash */
-                        {
-                            hash ^= hash * 43 + hashKey[ c ];
-                        }
-                        c = *t++;
+                        hash = fKeywordHashChar( hash, c );
+                    }
+                    c = *t++;
+                }
+
+                if ( hash != kKeywordTemplate ) // don't want to expand a {template} keyword in a template!
+                {
+                    string value = findParam( hash );
+
+                    if ( value == NULL ) // not in the dictionaries, check for an environment variable
+                    {
+                        string envkey = strndup( k, t - k - 1 );
+                        value = getenv( envkey );
+                        // debugf( 3, "env=\"%s\", value=\"%s\"\n", envkey, value );
+                        free( (void *)envkey );
                     }
 
-#if 0
-                    string tmpStr = strndup( k, t - k - 1 );
-                    debugf( 3, "key \'%s\' = 0x%016lx\n", tmpStr, hash );
-                    free( tmpStr );
-#endif
-                    if ( hash != kKeyTemplate ) // don't want to expand a {template} keyword in a template
+                    if ( c != '?' )
                     {
-                        string value = findValue( fileDict, hash );
-
-                        if ( value == NULL ) // not in the file dictionary, try the main dictionary
+                        // end of keyword, and not the beginning of a ternary expression
+                        if ( value != NULL )
                         {
-                            value = findValue( mainDict, hash );
+                            s = stpcpy( s, value );
                         }
+                    }
+                    else
+                    {  // ternary operator, like {param?true:false} (true or false can be absent)
 
-                        if ( value == NULL ) // not in the main dictionary either, check for an environment variable
-                        {
-                            string envkey = strndup( k, t - k - 1 );
-                            value = getenv( envkey );
-                            // debugf( 3, "env=\"%s\", value=\"%s\"\n", envkey, value );
-                            free( (void *)envkey );
-                        }
+                        c = *t++;
 
-                        if ( c != '?' )
+                        if ( value != NULL )
                         {
-                            // end of keyword, and not the beginning of a trinary expression
-                            if ( value != NULL )
+                            // copy the 'true' clause
+                            while ( c != '}' && c != ':' && c != '\0' )
                             {
-                                s = stpcpy( s, value );
-                            }
-                        }
-                        else
-                        {  // trinary operator, like {param?true:false} (true or false can be absent)
-
-                            c = *t++;
-
-                            if ( value != NULL )
-                            {
-                                // copy the 'true' clause
-                                while ( c != '}' && c != ':' && c != '\0' )
+                                if ( c != '@' )
                                 {
-                                    if ( c != '@' )
-                                    {
-                                        *s++ = c;
-                                    }
-                                    else
-                                    {
-                                        s = stpcpy( s, value );
-                                    }
-
-                                    c = *t++;
+                                    *s++ = c;
+                                }
+                                else
+                                {
+                                    s = stpcpy( s, value );
                                 }
 
-                                if ( c == ':' )
-                                {
-                                    // skip over the 'false' clause
-                                    while ( c != '\0' && c != '}' )
-                                    {
-                                        c = *t++;
-                                    }
-                                }
+                                c = *t++;
                             }
-                            else // if undefined, skip over 'true' pattern, find the ':' (or trailing '}')
+
+                            if ( c == ':' )
                             {
-                                // value is undefined, so skip ahead to the false clause (or keyword end)
-                                while ( c != ':' && c != '}' && c != '\0' )
+                                // skip over the 'false' clause
+                                while ( c != '\0' && c != '}' )
                                 {
                                     c = *t++;
                                 }
+                            }
+                        }
+                        else // if undefined, skip over 'true' pattern, find the ':' (or trailing '}')
+                        {
+                            // value is undefined, so skip ahead to the false clause (or keyword end)
+                            while ( c != ':' && c != '}' && c != '\0' )
+                            {
+                                c = *t++;
+                            }
 
-                                if ( c == ':' ) // did we find the 'false' clause?
+                            if ( c == ':' ) // did we find the 'false' clause?
+                            {
+                                c = *t++;  // yep, so swallow the colon
+                                // copy the 'false' clause into the string
+                                // no '@' processing, as the parameter is not defined
+                                while ( c != '\0' && c != '}' )
                                 {
-                                    c = *t++;  // yep, so swallow the colon
-                                    // copy the 'false' clause into the string
-                                    // no '@' processing, as the parameter is not defined
-                                    while ( c != '\0' && c != '}' )
-                                    {
-                                        *s++ = c;
-                                        c = *t++;
-                                    }
+                                    *s++ = c;
+                                    c = *t++;
                                 }
                             }
                         }
-                    } // if !{template}
-                    break;
+                    }
+                } // if !{template}
+                break;
 
-                case '\\': // next template character is escaped, not interpreted, e.g. \{
-                    c = *t++;
-                    *s++ = c;
-                    break;
+            case '\\': // next template character is escaped, not interpreted, e.g. \{
+                c = *t++;
+                *s++ = c;
+                break;
 
-                default:
-                    *s++ = c;
-                    break;
+            default:
+                *s++ = c;
+                break;
             } // switch
 
             c = *t++;
@@ -932,27 +891,38 @@ string buildString( tDictionary *mainDict, tDictionary *fileDict, string templat
 
 int parseConfigFile( tDictionary * dictionary, string path )
 {
-    int  result  = 0;
-    FILE *file;
-    char * buffer = malloc( 4096 ); // 4K seems like plenty
+    int    result = 0;
+    FILE * file;
+    char   buffer[ 4096 ]; // 4K seems like plenty
 
-    debugf( 3, "config file: \'%s\'\n", path );
-    if ( eaccess( path, R_OK ) == 0 )   // only attempt to parse it if there's something there
+    if ( eaccess( path, R_OK ) != 0 )   // only attempt to parse it if there's something accessible there
     {
-        file = fopen(path, "r");
+	    // it's OK if the file is missing, otherwise complain
+	    if ( errno != ENOENT )
+	    {
+		    fprintf( stderr,
+		             "### Error: Unable to access config file \'%s\' (%d: %s)",
+		             path, errno, strerror(errno));
+		    result = errno;
+	    }
+    }
+	else
+	{
+	    debugf( 3, "config file: \'%s\'\n", path );
+
+	    file = fopen(path, "r");
         if (file == NULL)
         {
-            fprintf( stderr,
-                     "### Error: Unable to open config file \'%s\' (%d: %s)\n",
+            fprintf( stderr, "### Error: Unable to open config file \'%s\' (%d: %s)\n",
                      path, errno, strerror(errno) );
-            result = -5;
+            result = errno;
         }
         else
         {
-            while ( fgets(buffer, 4096, file) != NULL )
+            while ( fgets( buffer, sizeof( buffer ), file) != NULL )
             {
-                trimTrailingWhitespace(buffer);
-                debugf( 3,"line: \"%s\"\n", buffer);
+                trimTrailingWhitespace( buffer );
+                debugf( 3,"line: \'%s\'\n", buffer );
 
                 tHash hash = 0;
                 string s = buffer;
@@ -963,154 +933,241 @@ int parseConfigFile( tDictionary * dictionary, string path )
                 unsigned char c = (unsigned char) *s++;
                 if (c != '\0') {
                     while (c != '\0' && c != '=') {
-                        if (c != kIgnore) {
-                            hash ^= hash * 43 + hashKey[c];
+                        if ( c != kKeywordSeparator ) {
+                            hash = fKeywordHashChar( hash, c );
                         }
                         c = (unsigned char) *s++;
                     }
 
                     if (c == '=') {
-                        // trim whitespace from the beginning of the value
-                        while (isspace(*s)) {
+                        // skip over whitespace from the beginning of the value
+                        while ( isspace(*s) ) {
                             s++;
                         }
-
-                        string e = s;
-                        string p = s;
-                        while (*p != '\0') {
-                            if ( !isspace(*p++) ) {
-                                e = p; // remember the location just past the most recent non-whitespace char we've seen
-                            }
-                        }
-                        // e should now point just past the last non-whitespace character in the string
-                        *(char *)e = '\0'; // trim off any trailing whitespace at the end of the string - including the LF
-
+	                    trimTrailingWhitespace( (char *)s );
                     }
                     debugf( 3,"hash = 0x%016lx, value = \'%s\'\n", hash, s);
-                    addParam(dictionary, hash, s);
+                    addParam( dictionary, hash, s );
                 }
             }
-            free(buffer);
             fclose(file);
         }
     }
     else
-    {
-        if (errno != ENOENT)
-        {
-            fprintf( stderr,
-                     "### Error: Unable to access config file \'%s\' (%d: %s)",
-                     path, errno, strerror(errno) );
-        }
-        result = errno;
-    }
 
     return result;
 }
 
-/*
- * look for config files to process. First, look in /etc/<argv[0]>.conf then in ~/.config/<argv[0]>.conf,
- * and finally the file passed as a -c parameter, if any, then any parameters on the command line (except -c)
+/**
+ * @brief Look for config files to process, and use them to update the main dictionary.
+ *
+ * First, look in /etc/<argv[0]>.conf then in ~/.config/<argv[0]>.conf, and finally the file
+ * passed as a -c parameter, if any, then any parameters on the command line (except -c)
  * Where a parameter occurs more than once in a dictionary, the most recent definition 'wins'
  */
 
-int parseConfig( tDictionary * dictionary, string path, string myName )
+int parseConfig( string path )
 {
     int result = 0;
     char temp[PATH_MAX];
 
-    snprintf( temp, sizeof( temp ), "/etc/%s.conf", myName );
+    snprintf( temp, sizeof( temp ), "/etc/%s.conf", gMyName );
     debugf( 3, "/etc path: \"%s\"\n", temp );
 
-    result = parseConfigFile( dictionary, temp );
-    if ( result == ENOENT )
-    {
-        result = 0;
-    }
+    result = parseConfigFile( gMainDict, temp );
 
     if ( result == 0 )
     {
         string home = getenv("HOME");
         if ( home == NULL)
         {
-            home = getpwuid(getuid())->pw_dir;
+            home = getpwuid( getuid() )->pw_dir;
         }
         if ( home != NULL )
         {
-            snprintf( temp, sizeof( temp ), "%s/.config/%s.conf", home, myName );
+            snprintf( temp, sizeof( temp ), "%s/.config/%s.conf", home, gMyName );
             debugf( 3, "~ path: \"%s\"\n", temp );
 
-            result = parseConfigFile( dictionary, temp );
-            if ( result == ENOENT )
-            {
-                result = 0;
-            }
+            result = parseConfigFile( gMainDict, temp );
         }
     }
 
     if ( result == 0 && path != NULL )
     {
-        snprintf( temp, sizeof( temp ), "%s/%s.conf", path, myName );
-        debugf( 3, "-c path: %s\n", temp );
+    	struct stat fileStat;
 
-        result = parseConfigFile( dictionary, temp );
+    	if ( stat( path, &fileStat ) != 0 )
+	    {
+		    fprintf( stderr, "### Error: config path '%s' is not valid (%d: %s)\n",
+		    		 path, errno, strerror(errno) );
+		    result = -1;
+	    }
+	    switch ( fileStat.st_mode & S_IFMT )
+	    {
+	    case S_IFDIR:
+		    snprintf( temp, sizeof( temp ), "%s/%s.conf", path, gMyName );
+		    break;
+
+	    case S_IFLNK:
+	    case S_IFREG:
+		    strncpy( temp, path, sizeof( temp ) );
+		    break;
+
+	    default:
+		    fprintf( stderr, "### Error: config path '%s' is neither a file nor directory.\n", path );
+		    result = -1;
+		    break;
+	    }
+
+    	if ( result == 0 )
+	    {
+		    debugf( 3, "-c path: %s\n", temp );
+		    result = parseConfigFile( gMainDict, temp );
+	    }
     }
 
     return result;
 }
 
-int processFile( tDictionary * mainDict, tDictionary * seriesDict, string path )
+/**
+ * @brief recurive function to walk the path looking for config files
+ * @param gFileDict
+ * @param path
+ */
+void _recurseConfig( tDictionary * dictionary, string path )
+{
+	char temp[PATH_MAX];
+
+	if ( strlen(path) != 1 || (path[0] != '/' && path[0] != '.'))
+	{
+		strncpy( temp, path, sizeof( temp ) );
+		_recurseConfig( dictionary, dirname( temp ) );
+		/* check for a config file & if found, parse it */
+		debugf( 3, "recurse = \'%s\'\n", path );
+		snprintf( temp, sizeof(temp), "%s/%s.conf", path, gMyName );
+		parseConfigFile( dictionary, temp );
+	}
+}
+
+/**
+   Traverse the path to the source file, looking for config files.
+   Apply them in the reverse order, so ones lower in the hierarchy
+   can override parameters defined in higher ones.
+ */
+int processConfigPath( string path )
+{
+	int  result = 0;
+	char temp[PATH_MAX];
+	char * absolute;
+
+	/* dirname may modify its argument, so make a copy first */
+	strncpy( temp, path, sizeof(temp) );
+	absolute = realpath( dirname(temp), NULL );
+	if ( absolute == NULL )
+	{
+		fprintf( stderr, "### Error: path \'%s\' appears to be invalid (%d: %s).\n",
+				 path, errno, strerror(errno) );
+		return -5;
+	}
+	else
+	{
+		debugf( 3, "abs = %s, cached = %s\n", absolute, gCachedPath );
+		if ( gCachedPath == NULL || strcmp( gCachedPath, absolute ) != 0 )
+		{
+			debugf( 3, "absolute = \'%s\'\n", absolute );
+			emptyDictionary( gPathDict );
+			gCachedPath = absolute;
+			_recurseConfig( gPathDict, absolute );
+		}
+
+		/* we may have picked up a new definition of {destination}
+		   as a result of parsing different config files.
+		   if so, we need to rebuild gSeriesDict */
+
+		string destination = findParam( kKeywordDestination );
+
+		if ( destination == NULL)
+		{
+			fprintf( stderr, "### Error: no destination defined.\n" );
+			result = -3;
+		}
+		else
+		{
+			if ( gCachedSeries == NULL || strcmp( gCachedSeries, destination ) != 0 )
+			{
+				debugf( 3, "destination = \'%s\'\n", destination );
+				// fill the dictionary with hashes of the directory names in the destination
+				emptyDictionary( gSeriesDict );
+				gCachedSeries = destination;
+				buildSeriesDictionary( destination );
+			}
+		}
+	}
+	return result;
+}
+
+int processFile( string path )
 {
     int result = 0;
 
-    string template = findValue( mainDict, kKeyTemplate );
-    if ( template == NULL )
+    processConfigPath( path );
+
+	parsePath( path );
+
+    printDictionary( gFileDict );
+
+    string template = findParam( kKeywordTemplate );
+
+    if ( template == NULL)
     {
-        fprintf( stderr, "### Error: no template defined.\n" );
+        fprintf( stderr, "### Error: no template found.\n" );
         result = -2;
     }
     else
     {
         debugf( 3, "template = \'%s\'\n", template );
 
-        tDictionary *fileDict = createDictionary( "File" );
-        if ( fileDict != NULL )
+        string output = buildString( template );
+        string exec   = findParam( kKeywordExecute );
+        if ( exec != NULL)
         {
-            parsePath( fileDict, seriesDict, path );
-
-            printDictionary( fileDict );
-
-            string output = buildString( mainDict, fileDict, template );
-            string exec   = findValue( mainDict, kKeyExecute );
-            if ( exec != NULL )
-            {
-                result = system(output);
-            }
-            else
-            {
-                printf( "%s%c", output, '\n' );
-                result = 0;
-            }
-            free( (void *)output );
-
-            destroyDictionary( fileDict );
+	        result = system( output );
         }
+        else
+        {
+	        printf( "%s\n", output );
+        }
+        free( (void *)output );
     }
+    emptyDictionary( gFileDict );
     return result;
 }
 
 int main( int argc, string argv[] )
 {
-    int  result       = 0;
-    int  cnt          = argc;
+    int  result;
+    int  cnt;
     string configPath = NULL;
+	time_t secsSinceEpoch;
+	struct tm *timeStruct;
 
-    tDictionary * mainDict = createDictionary( "Main" );
+    gMainDict   = createDictionary( "Main" );
+	gSeriesDict = createDictionary( "Series" );
+	gPathDict   = createDictionary( "Path" );
+	gFileDict   = createDictionary( "File" );
 
-    string myName = basename( strdup( argv[0] ) ); // posix flavor of basename modifies its argument
+	gMyName = basename( strdup( argv[0] ) ); // posix flavor of basename modifies its argument
+
+    secsSinceEpoch = time( NULL );
+	timeStruct = localtime( &secsSinceEpoch );
+	if ( timeStruct != NULL )
+	{
+		gNextYear = timeStruct->tm_year + 1900 + 1;
+	}
 
     int k = 1;
-    for ( int i = 1; i < argc && result == 0; i++ )
+	cnt = argc;
+    for ( int i = 1; i < argc; i++ )
     {
         debugf( 3, "a: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[ i ] );
 
@@ -1132,7 +1189,7 @@ int main( int argc, string argv[] )
     }
     argc = cnt;
 
-    result = parseConfig( mainDict, configPath, myName );
+    result = parseConfig( configPath );
 
     if ( configPath != NULL )
     {
@@ -1141,115 +1198,99 @@ int main( int argc, string argv[] )
     }
 
     k = 1;
-    for ( int i = 1; i < argc && result == 0; i++ )
+    if ( result == 0 )
     {
-        debugf( 3, "b: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
+	    for ( int i = 1; i < argc; i++ )
+	    {
+		    debugf( 3, "b: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
 
-        // is it an option?
-        if (argv[i][0] == '-' )
-        {
-            char option = argv[i][1];
-            if ( argv[i][2] != '\0' )
-            {
-                fprintf( stderr, "### Error: option \'%s\' not understood.\n", argv[ i ] );
-                result = -1;
-            }
-            else
-            {
-                --cnt;
+		    // is it an option?
+		    if ( argv[i][0] == '-' )
+		    {
+			    char option = argv[i][1];
+			    if ( argv[i][2] != '\0' )
+			    {
+				    fprintf( stderr, "### Error: option \'%s\' not understood.\n", argv[i] );
+				    result = -1;
+			    }
+			    else
+			    {
+				    --cnt;
 
-                switch ( option )
-                {
-                // case 'c':   // config file already handled
-                //  break;
+				    switch ( option )
+				    {
+				    case 'd':   // destination
+					    addParam( gMainDict, kKeywordDestination, argv[i] );
+					    --cnt;
+					    ++i;
+					    break;
 
-                case 'd':   // destination
-                    addParam( mainDict, kKeyDestination, argv[ i ] );
-                    --cnt;
-                    ++i;
-                    break;
+				    case 't':   // template
+					    addParam( gMainDict, kKeywordTemplate, argv[i] );
+					    --cnt;
+					    ++i;
+					    break;
 
-                case 't':   // template
-                    addParam( mainDict, kKeyTemplate, argv[ i ] );
-                    --cnt;
-                    ++i;
-                    break;
+				    case 'x':   // execute
+					    addParam( gMainDict, kKeywordExecute, "yes" );
+					    break;
 
-                case 'x':   // execute
-                    addParam( mainDict, kKeyExecute, "yes" );
-                    break;
+				    case '-':   // also read lines from stdin
+					    addParam( gMainDict, kKeywordStdin, "yes" );
+					    break;
 
-                case '-':   // also read lines from stdin
-                    addParam( mainDict, kKeyStdin, "yes" );
-                    break;
+				    case '0':   // entries from stdio are terminated with NULLs
+					    addParam( gMainDict, kKeywordNullTermination, "yes" );
+					    break;
 
-                case '0':   // entries from stdio are terminated with NULLs
-                    addParam( mainDict, kKeyNullTermination, "yes" );
-                    break;
+				    case 'v': //verbose output, i.e. debug logging
+					    if ( i < argc - 1 )
+					    {
+						    ++i;
+						    --cnt;
 
-                case 'v': //verbose output, i.e. debug logging
-                    if ( i < argc - 1 )
-                    {
-                        ++i;
-                        --cnt;
+						    gDebugLevel = atoi( argv[i] );
+						    fprintf( stderr, "verbosity = %d\n", gDebugLevel );
+					    }
+					    break;
 
-                        gDebugLevel = atoi( argv[i] );
-                        fprintf(stderr, "verbosity = %d\n", gDebugLevel );
-                    }
-                    break;
-
-                default:
-                    ++cnt;
-                    --i; // point back at the original option
-                    fprintf( stderr, "### Error: option \'%s\' not understood.\n", argv[ i ] );
-                    result = -1;
-                    break;
-                }
-            }
-        }
-        else
-        {
-            if ( i != k )
-            {
-                argv[k] = argv[i];
-            }
-            ++k;
-        }
-    }
-    argc = cnt;
-
-    /* printDictionary( mainDict ); */
-
-    tDictionary *seriesDict = createDictionary( "Series" );
-
-    string destination = findValue( mainDict, kKeyDestination );
-
-    if ( destination == NULL )
-    {
-        fprintf( stderr, "### Error: no destination defined.\n" );
-        result = -3;
-    }
-    else
-    {
-        // fill the dictionary with hashes of the directory names in the destination
-        buildSeriesDictionary( seriesDict, destination );
+				    default:
+					    ++cnt;
+					    --i; // point back at the original option
+					    fprintf( stderr, "### Error: option \'%s\' not understood.\n", argv[i] );
+					    result = -1;
+					    break;
+				    }
+			    }
+		    }
+		    else
+		    {
+			    if ( i != k )
+			    {
+				    argv[k] = argv[i];
+			    }
+			    ++k;
+		    }
+	    }
+	    argc = cnt;
     }
 
+    printDictionary( gMainDict );
 
     for ( int i = 1; i < argc && result == 0; ++i )
     {
         debugf( 3, "%d: \'%s\'\n", i, argv[ i ] );
-        processFile( mainDict, seriesDict, argv[i] );
+        processFile( argv[i] );
     }
 
     // should we also read from stdin?
-    if ( findValue( mainDict, kKeyStdin ) != NULL )
+    if ( findParam( kKeywordStdin ) != NULL )
     {
         char line[PATH_MAX];
 
-        if ( findValue( mainDict, kKeyNullTermination ) != NULL )
+        if ( findParam( kKeywordNullTermination ) != NULL )
         {
-            // lines are terminated by \0
+            // ...therefore lines are terminated by \0
             char * p = line;
             cnt = sizeof( line );
 
@@ -1262,7 +1303,7 @@ int main( int argc, string argv[] )
                 if ( c == '\0' || cnt < 1 )
                 {
                     debugf( 3, "null: %s\n", line );
-                    processFile( mainDict, seriesDict, line );
+                    processFile( line );
 
                     p = line;
                     cnt = sizeof( line );
@@ -1273,21 +1314,22 @@ int main( int argc, string argv[] )
         {
             while (!feof(stdin))
             {
-                // lines are terminated by \n
+                // ...otherwise lines are terminated by \n
                 fgets( line, sizeof(line), stdin );
 
-                // trim the inevitable trailing newline(s)/whitespace
+                // lop off the inevitable trailing newline(s)/whitespace
                 trimTrailingWhitespace( line );
                 debugf( 3,"eol: %s\n", line);
-                processFile(mainDict, seriesDict, line);
+                processFile( line);
             }
         }
     }
 
     // all done, clean up.
-    destroyDictionary( mainDict );
-    destroyDictionary( seriesDict );
+	destroyDictionary( gFileDict );
+	destroyDictionary( gPathDict );
+	destroyDictionary( gSeriesDict );
+	destroyDictionary( gMainDict );
 
-
-    return result;
+	return result;
 }
