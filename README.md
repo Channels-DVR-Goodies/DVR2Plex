@@ -1,4 +1,5 @@
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/68d3bc77c19b400693c30f07f6fe0fdf)](https://www.codacy.com/manual/paul-chambers/DVR2Plex?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=paul-chambers/DVR2Plex&amp;utm_campaign=Badge_Grade)
+
 [Full Documentation](https://paul-chambers.github.io/DVR2Plex/)
 
 # DVR2Plex
@@ -11,7 +12,7 @@ This tool uses some fancy text processing techniques to reformat filename
 into another one. To be useful, this tool needs to be used with other Linux 
 command line tools, e.g. to copy (or hardlink) files to their new location.
 
-Since ChanDVR2Plex isn't actually doing the copy/hardlinking itself, it
+Since DVR2Plex isn't actually doing the copy/hardlinking itself, it
 cannot prevent the tool doing the copy from blindly overwriting an existing
 high-quality file with a lower quality one. Thus it's best to have your
 template generate a destination filename that won't overwrite any existing
@@ -97,28 +98,28 @@ output. The component parts are substituted in the appropriate place
 where you put something like "{episode}". There are quite a number of
 these parameters:
 
-| parameter name | description |
-|---             |---          |
-| {source}       | The path to the source file, as passed to this tool. |
-| {path}         | The 'dirname' part of the source (no trailing slash) |
-| {basename}     | The 'basename' of the source (without the extension) |
+| Parameter Name | Description                                                                     |
+|---             |---                                                                              |
+| {source}       | The path to the source file, as passed to this tool.                            |
+| {path}         | The 'dirname' part of the source (no trailing slash)                            |
+| {basename}     | The 'basename' of the source (without the extension)                            |
 | {extension}    | The extension. separate so that if what you want to do is convert containers, you can use something like {path}/{basename}.mkv |
-| {series}       | The raw name of the series (as extracted from the source |
-| {season}       | Always at least two digits, zero-padded |
-| {seasonfolder} | If the season is zero, this will be "Specials", otherwise equivalent to "Season {season}"
-| {episode}      | Always at least two digits, zero-padded |
-| {title}        | The episode title |
+| {series}       | The raw name of the series (as extracted from the source                        |
+| {season}       | Always at least two digits, zero-padded                                         |
+| {seasonfolder} | If the season is zero, this will be "Specials", otherwise equivalent to "Season {season}" |
+| {episode}      | Always at least two digits, zero-padded                                         |
+| {title}        | The episode title                                                               |
 | {destseries}   | This is the target folder that the tool determined, by a fuzzy match, is the right destination for the file.<br> More details below. |
 | {destination}  | The destination directory for the file. Also used as part of the fuzzy matching | 
-| {firstaired}   | the date this episode first aired *(specific to Channels DVR files)* |
-| {daterecorded} | the date/time Channels DVR recorded this *(specific to Channels DVR files)* |
-| {template}     | it's a parameter too, though you can't use it in a template |
+| {firstaired}   | the date this episode first aired *(specific to Channels DVR files)*            |
+| {daterecorded} | the date/time Channels DVR recorded this *(specific to Channels DVR files)*     |
+| {template}     | it's a parameter too, though you can't use it in a template                     |
 
 This is only the predefined list of parameters that the parsing will
 pre-populate automatically - except for {destination} and {template},
 which need to be defined by the user. They can either be defined on the 
 command line, or in a config file - the tool looks for
-`/etc/ChanDVR2Plex.conf` and `~/.config/ChanDVR2Plex.conf`, then will
+`/etc/DVR2Plex.conf` and `~/.config/DVR2Plex.conf`, then will
 process the config file defined by the `-c` command line option, before
 finishing with any command line options. Parameters can be defined
 multiple times, the last one wins. So you could, for example, define a
@@ -182,7 +183,7 @@ that particular characters can be mapped to another, or ignored
 completely. For example, upper case characters are mapped to lower case,
 so "UPPER" has the same hash as "upper" or "UpPeR"
 
-ChanDVR2Plex first builds up a list of hashes for the directories
+DVR2Plex first builds up a list of hashes for the directories
 found in the {destination} directory.
 
 The matching algorithm is not phased by differing case, missing
