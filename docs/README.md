@@ -1,6 +1,6 @@
-[![Codacy Badge](https://api.codacy.com/project/badge/Grade/68d3bc77c19b400693c30f07f6fe0fdf)](https://www.codacy.com/manual/paul-chambers/ChanDVR2Plex?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=paul-chambers/ChanDVR2Plex&amp;utm_campaign=Badge_Grade)
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/68d3bc77c19b400693c30f07f6fe0fdf)](https://www.codacy.com/manual/paul-chambers/DVR2Plex?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=paul-chambers/DVR2Plex&amp;utm_campaign=Badge_Grade)
 
-# ChanDVR2Plex
+# DVR2Plex
 
 **Caution:** If you are new to the linux command line, and/or are unfamiliar
 with common linux tools like 'find', I wouldn't recommend this as a good first
@@ -10,7 +10,7 @@ This tool uses some fancy text processing techniques to reformat filename
 into another one. To be useful, this tool needs to be used with other Linux 
 command line tools, e.g. to copy (or hardlink) files to their new location.
 
-Since ChanDVR2Plex isn't actually doing the copy/hardlinking itself, it
+Since DVR2Plex isn't actually doing the copy/hardlinking itself, it
 cannot prevent the tool doing the copy from blindly overwriting an existing
 high-quality file with a lower quality one. Thus it's best to have your
 template generate a destination filename that won't overwrite any existing
@@ -117,7 +117,7 @@ This is only the predefined list of parameters that the parsing will
 pre-populate automatically - except for {destination} and {template},
 which need to be defined by the user. They can either be defined on the 
 command line, or in a config file - the tool looks for
-`/etc/ChanDVR2Plex.conf` and `~/.config/ChanDVR2Plex.conf`, then will
+`/etc/DVR2Plex.conf` and `~/.config/DVR2Plex.conf`, then will
 process the config file defined by the `-c` command line option, before
 finishing with any command line options. Parameters can be defined
 multiple times, the last one wins. So you could, for example, define a
@@ -133,7 +133,7 @@ environment variable with that name (case-sensitive, in this case). So
 
 The assumption is that a config file would contain at least the
 {destination} and {template} parameters, since those are likely to be
-the consistent on a given machine. For example. `/etc/chandvr2plex.conf`
+the consistent on a given machine. For example. `/etc/DVR2Plex.conf`
 might contain:
 ```
 destination = /home/video/TV
@@ -181,7 +181,7 @@ that particular characters can be mapped to another, or ignored
 completely. For example, upper case characters are mapped to lower case,
 so "UPPER" has the same hash as "upper" or "UpPeR"
 
-ChanDVR2Plex first builds up a list of hashes for the directories
+DVR2Plex first builds up a list of hashes for the directories
 found in the {destination} directory.
 
 The matching algorithm is not phased by differing case, missing

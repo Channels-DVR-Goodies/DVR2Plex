@@ -2,8 +2,8 @@
 // Created by root on 8/22/19.
 //
 
-#ifndef CHANDVR2PLEX_DICTIONARY_H
-#define CHANDVR2PLEX_DICTIONARY_H
+#ifndef DVR2PLEX_DICTIONARY_H
+#define DVR2PLEX_DICTIONARY_H
 
 typedef unsigned long tHash;
 
@@ -26,4 +26,4 @@ tDictionary *  createDictionary( const char * name );
           int  addParam( tDictionary * dictionary, tHash hash, string value );
        string  findValue( tDictionary * dictionary, tHash hash );
 
-#endif //CHANDVR2PLEX_DICTIONARY_H
+#endif // DVR2PLEX_DICTIONARY_H

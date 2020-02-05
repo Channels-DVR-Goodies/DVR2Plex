@@ -33,28 +33,28 @@ likes to see the library organized, and things generally go more smoothly
 if everything uses the same organization and naming strategy.
 
 I'm also a fan of the [Channels DVR](https://getchannels.com/dvr-server/), 
-which is particularly well implemented and has some features that I find
-particularly useful. It keeps its recordins in a private directory, and
-while it is well-orgainized, it's in a way that's a little different to
-the structure that Plex prefers. Most importantly, Channels DVR 'owns'
-the files in that folder, and other software must respect that, and not
-'pull the rug out' from under Channels by messing with those files.
+which is well implemented and has some features that I find particularly
+useful. It keeps its recordins in a private directory, and while it is
+well-orgainized, it's in a way that's a little different to the structure
+that Plex prefers. More importantly, Channels DVR 'owns' the files in
+that folder, and other software should respect that, and not 'pull the rug'
+out from under Channels DVR by messing with those files behind its back.
 
 While you could point Plex at the Channels directories holding the
-recordings, and Plex will figure things out. But it should treat those 
-directory contents as read-only, otherwise Plex will be altering files
-that Channels owns.
+recordings, and Plex will figure things out. However, it should treat
+those directory contents as read-only, otherwise Plex will be altering
+files that Channels owns.
  
-*So,* I initially wrote a shell script that hardlinked the recordings
-Channels DVR made in its private directory into the 'right place' in
-my Plex library. A hard link doesn't use any more disk space, but does
-mean the hard link in the Plex Library can bre moved and/or renamed
-without affecting the one in the Channels DVR 'private' directory.
-The inverse is also true - the Channels DVR can delete its file in
-the 'private' directory, but the other link to it in the Plex library
-will remain. Which is very handy if you want to tell Channels DVR to
-'only keep *n* episodes' (or [kmttg](https://sourceforge.net/projects/kmttg),
-for that matter).
+I initially wrote a shell script that hardlinked the recordings Channels
+DVR made in its private directory into the 'right place' in my Plex
+library. A 'hard link' doesn't use any more disk space, and has the
+positive attribute that the hard link in the Plex Library can be moved
+and/or renamed without affecting the one in the Channels DVR 'private'
+directory. The inverse is also true - the Channels DVR can delete its
+file in the 'private' directory, without affecting the other link to it
+in the Plex library, so it will remain. This is very handy when used
+with the 'only keep *n* episodes' in Channels DVR (or
+[kmttg](https://sourceforge.net/projects/kmttg), for that matter).
 
 *Problem solved, right?* Well, mostly...
 
@@ -102,18 +102,18 @@ these parameters:
 |---             |---                                                                              |
 | {source}       | The path to the source file, as passed to this tool.                            |
 | {path}         | The 'dirname' part of the source (no trailing slash)                            |
-| {basename}     | The 'basename' of the source (without the extension)                            |
-| {extension}    | The extension. separate so that if what you want to do is convert containers, you can use something like {path}/{basename}.mkv |
-| {series}       | The raw name of the series (as extracted from the source                        |
+| {basename}     | The 'basename' of the source (minus the extension)                              |
+| {extension}    | The extension. Separated so that if what you want to do is convert containers, you can write something like {path}/{basename}.mkv as the destination in the template |
+| {series}       | The raw name of the series (as extracted from the source)                       |
 | {season}       | Always at least two digits, zero-padded                                         |
-| {seasonfolder} | If the season is zero, this will be "Specials", otherwise equivalent to "Season {season}" |
+| {seasonfolder} | If the season is zero, this will be "Specials", otherwise "Season {season}"     |
 | {episode}      | Always at least two digits, zero-padded                                         |
 | {title}        | The episode title                                                               |
-| {destseries}   | This is the target folder that the tool determined, by a fuzzy match, is the right destination for the file.<br> More details below. |
-| {destination}  | The destination directory for the file. Also used as part of the fuzzy matching | 
-| {firstaired}   | the date this episode first aired *(specific to Channels DVR files)*            |
-| {daterecorded} | the date/time Channels DVR recorded this *(specific to Channels DVR files)*     |
-| {template}     | it's a parameter too, though you can't use it in a template                     |
+| {destseries}   | This is the target folder that the tool determined (by fuzzy match) is the right destination for the file.<br> More details below. |
+| {destination}  | The destination directory for the file. Also scanned as part of the fuzzy matching | 
+| {firstaired}   | The date this episode first aired *(specific to Channels DVR files)*            |
+| {daterecorded} | The date/time Channels DVR recorded this *(specific to Channels DVR files)*     |
+| {template}     | It's a parameter too (though you can't use it in a template, obviously)         |
 
 This is only the predefined list of parameters that the parsing will
 pre-populate automatically - except for {destination} and {template},
@@ -135,7 +135,7 @@ environment variable with that name (case-sensitive, in this case). So
 
 The assumption is that a config file would contain at least the
 {destination} and {template} parameters, since those are likely to be
-the consistent on a given machine. For example. `/etc/chandvr2plex.conf`
+the consistent on a given machine. For example. `/etc/DVR2Plex.conf`
 might contain:
 ```
 destination = /home/video/TV
