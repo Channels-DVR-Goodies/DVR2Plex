@@ -1,7 +1,7 @@
-[![Codacy Badge](https://api.codacy.com/project/badge/Grade/68d3bc77c19b400693c30f07f6fe0fdf)](https://www.codacy.com/manual/paul-chambers/ChanDVR2Plex?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=paul-chambers/ChanDVR2Plex&amp;utm_campaign=Badge_Grade)
-[Documentation](https://paul-chambers.github.io/ChanDVR2Plex/)
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/68d3bc77c19b400693c30f07f6fe0fdf)](https://www.codacy.com/manual/paul-chambers/DVR2Plex?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=paul-chambers/DVR2Plex&amp;utm_campaign=Badge_Grade)
+[Full Documentation](https://paul-chambers.github.io/DVR2Plex/)
 
-# ChanDVR2Plex
+# DVR2Plex
 
 **Caution:** If you are new to the linux command line, and/or are unfamiliar
 with common linux tools like 'find', I wouldn't recommend this as a good first
