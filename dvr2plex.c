@@ -7,7 +7,7 @@
 #define _XOPEN_SOURCE 700
 #include <features.h>
 
-#include "chandvr2plex.h"
+#include "dvr2plex.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>

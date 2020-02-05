@@ -51,7 +51,7 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
-/chandvr2plex
+/dvr2plex
 .idea/
 cmake-*/
 keywords.h
