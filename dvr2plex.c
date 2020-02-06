@@ -25,7 +25,6 @@
 #include <sys/stat.h>
 
 #include <dlfcn.h>
-#include <MediaInfoDLL/MediaInfoDLL.h>
 
 #include "dictionary.h"
 
@@ -65,7 +64,7 @@
 #include "keywords.h"
 
 string gMyName;
-int gDebugLevel = 3;
+int gDebugLevel = 0;
 unsigned int gNextYear = 1895;
 
 tDictionary * gMainDict;
@@ -79,10 +78,10 @@ string gCachedSeries = NULL;
 typedef struct sToken
 {
 	struct sToken * next;
-	string        start;
-	string        end;
-	tHash         hash;
-	unsigned char seperator;
+	string          start;
+	string          end;
+	tHash           hash;
+	unsigned char   seperator;
 } tToken;
 
 tToken gTokenList;
@@ -94,7 +93,7 @@ tToken gTokenList;
  */
 void trimTrailingWhitespace(char * line)
 {
-    char * t = line;
+    char * t    = line;
     char * nwsp = line;
 
     if ( t != NULL )
@@ -296,7 +295,7 @@ void storeSeries( string series )
         case kKeywordSeparator:
         case '\0':
         	/* let's see if we have a match */
-            debugf( 3, "checking: 0x%016lx\n", hash );
+            debugf( 4, "checking: 0x%016lx\n", hash );
 
             string match = findValue( gSeriesDict, hash );
             if ( match != NULL)
@@ -519,7 +518,7 @@ void tokenizeName( string originalName )
 		token = gTokenList.next;
 		while ( token != NULL )
 		{
-			debugf( 3, "token: \'%s\', \'%s\' (%c)\n", lookupHash( token->hash ), token->start, token->seperator );
+			debugf( 4, "token: \'%s\', \'%s\' (%c)\n", lookupHash( token->hash ), token->start, token->seperator );
 			token = token->next;
 		}
 	}
@@ -703,11 +702,11 @@ int parseName( string name )
     mergeDigits();
     mergeNoMatch();
 
-    debugf( 3, "%s\n", "after merging" );
+    debugf( 4, "%s\n", "after merging" );
     token = gTokenList.next;
     while ( token != NULL)
     {
-        debugf( 3, "token: \'%s\', \'%s\' (%c)\n", lookupHash( token->hash ), token->start, token->seperator );
+        debugf( 4, "token: \'%s\', \'%s\' (%c)\n", lookupHash( token->hash ), token->start, token->seperator );
 
 	    storeToken( token->hash, token->start );
 	    token = token->next;
@@ -804,7 +803,10 @@ string buildString( string template )
                     {
                         string envkey = strndup( k, t - k - 1 );
                         value = getenv( envkey );
-                        // debugf( 3, "env=\"%s\", value=\"%s\"\n", envkey, value );
+                        if ( value != NULL )
+                        {
+                            debugf( 3, "env=\"%s\", value=\"%s\"\n", envkey, value );
+                        }
                         free( (void *)envkey );
                     }
 
@@ -922,7 +924,7 @@ int parseConfigFile( tDictionary * dictionary, string path )
             while ( fgets( buffer, sizeof( buffer ), file) != NULL )
             {
                 trimTrailingWhitespace( buffer );
-                debugf( 3,"line: \'%s\'\n", buffer );
+                debugf( 4,"line: \'%s\'\n", buffer );
 
                 tHash hash = 0;
                 string s = buffer;
@@ -946,7 +948,7 @@ int parseConfigFile( tDictionary * dictionary, string path )
                         }
 	                    trimTrailingWhitespace( (char *)s );
                     }
-                    debugf( 3,"hash = 0x%016lx, value = \'%s\'\n", hash, s);
+                    debugf( 4,"hash = 0x%016lx, value = \'%s\'\n", hash, s);
                     addParam( dictionary, hash, s );
                 }
             }
@@ -967,11 +969,11 @@ int parseConfigFile( tDictionary * dictionary, string path )
 
 int parseConfig( string path )
 {
-    int result = 0;
+    int  result = 0;
     char temp[PATH_MAX];
 
     snprintf( temp, sizeof( temp ), "/etc/%s.conf", gMyName );
-    debugf( 3, "/etc path: \"%s\"\n", temp );
+    debugf( 4, "/etc path: \"%s\"\n", temp );
 
     result = parseConfigFile( gMainDict, temp );
 
@@ -985,7 +987,7 @@ int parseConfig( string path )
         if ( home != NULL )
         {
             snprintf( temp, sizeof( temp ), "%s/.config/%s.conf", home, gMyName );
-            debugf( 3, "~ path: \"%s\"\n", temp );
+            debugf( 4, "~ path: \"%s\"\n", temp );
 
             result = parseConfigFile( gMainDict, temp );
         }
@@ -1020,7 +1022,7 @@ int parseConfig( string path )
 
     	if ( result == 0 )
 	    {
-		    debugf( 3, "-c path: %s\n", temp );
+		    debugf( 4, "-c path: %s\n", temp );
 		    result = parseConfigFile( gMainDict, temp );
 	    }
     }
@@ -1042,7 +1044,7 @@ void _recurseConfig( tDictionary * dictionary, string path )
 		strncpy( temp, path, sizeof( temp ) );
 		_recurseConfig( dictionary, dirname( temp ) );
 		/* check for a config file & if found, parse it */
-		debugf( 3, "recurse = \'%s\'\n", path );
+		debugf( 4, "recurse = \'%s\'\n", path );
 		snprintf( temp, sizeof(temp), "%s/%s.conf", path, gMyName );
 		parseConfigFile( dictionary, temp );
 	}
@@ -1094,7 +1096,7 @@ int processConfigPath( string path )
 		{
 			if ( gCachedSeries == NULL || strcmp( gCachedSeries, destination ) != 0 )
 			{
-				debugf( 3, "destination = \'%s\'\n", destination );
+				debugf( 2, "destination = \'%s\'\n", destination );
 				// fill the dictionary with hashes of the directory names in the destination
 				emptyDictionary( gSeriesDict );
 				gCachedSeries = destination;
@@ -1124,7 +1126,7 @@ int processFile( string path )
     }
     else
     {
-        debugf( 3, "template = \'%s\'\n", template );
+        debugf( 2, "template = \'%s\'\n", template );
 
         string output = buildString( template );
         string exec   = findParam( kKeywordExecute );
@@ -1178,7 +1180,7 @@ int main( int argc, string argv[] )
 	cnt = argc;
     for ( int i = 1; i < argc; i++ )
     {
-        debugf( 3, "a: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[ i ] );
+        debugf( 4, "a: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[ i ] );
 
         // is it the config file option?
         if ( strcmp( argv[ i ], "-c" ) == 0 )
@@ -1209,7 +1211,7 @@ int main( int argc, string argv[] )
     k = 1;
     for ( int i = 1; i < argc && result == 0; i++ )
     {
-        debugf( 3, "b: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
+        debugf( 4, "b: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
 
         // is it an option?
         if (argv[i][0] == '-' )
@@ -1255,7 +1257,7 @@ int main( int argc, string argv[] )
                     addParam( gMainDict, kKeywordNullTermination, "yes" );
                     break;
 
-                case 'v': //verbose output, i.e. debug logging
+                case 'v': // verbose output, i.e. show debug logging
                     if ( i < argc - 1 )
                     {
                         ++i;
@@ -1291,7 +1293,7 @@ int main( int argc, string argv[] )
 
     for ( int i = 1; i < argc; i++ )
     {
-	    debugf( 3, "b: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
+	    debugf( 4, "b: i = %d, k = %d, cnt = %d, \'%s\'\n", i, k, cnt, argv[i] );
 
 	    // is it an option?
 	    if ( argv[i][0] == '-' )
@@ -1367,7 +1369,7 @@ int main( int argc, string argv[] )
 
     for ( int i = 1; i < argc && result == 0; ++i )
     {
-        debugf( 3, "%d: \'%s\'\n", i, argv[ i ] );
+        debugf( 4, "%d: \'%s\'\n", i, argv[ i ] );
         processFile( argv[i] );
     }
 
@@ -1390,7 +1392,7 @@ int main( int argc, string argv[] )
 
                 if ( c == '\0' || cnt < 1 )
                 {
-                    debugf( 3, "null: %s\n", line );
+                    debugf( 4, "null: %s\n", line );
                     processFile( line );
 
                     p = line;
@@ -1407,7 +1409,7 @@ int main( int argc, string argv[] )
 
                 // lop off the inevitable trailing newline(s)/whitespace
                 trimTrailingWhitespace( line );
-                debugf( 3,"eol: %s\n", line);
+                debugf( 4,"eol: %s\n", line);
                 processFile( line);
             }
         }
