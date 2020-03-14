@@ -491,7 +491,7 @@ void tokenizeName( string originalName )
 					token->seperator = *ptr;
 					*(char *)ptr = '\0';
 				}
-				// only prepare for the next run if we're nt at the end of the string
+				// only prepare for the next run if we're not at the end of the string
 				if ( c != '\0' )
 				{
 					// skip over a run of kPatternSeperator, if present (e.g. ' - ')
@@ -508,9 +508,13 @@ void tokenizeName( string originalName )
 				ptr++;
 				break;
 
-			default:
+            case kPatternIgnored:
+                ptr++;
+                break;
+
+            default:
 				hash = fPatternHashChar( hash, c );
-				ptr++;
+                ptr++;
 				break;
 			};
 		} while ( c != '\0' );
@@ -729,13 +733,14 @@ int parsePath( string path )
     addParam( gFileDict, kKeywordSource, path );
 
     string lastPeriod = strrchr( path, '.' );
-    if ( lastPeriod != NULL )
+    string lastChar = path + strlen(path);
+    if ( lastPeriod != NULL && (lastChar - lastPeriod) < 5 )
     {
         addParam( gFileDict, kKeywordExtension, lastPeriod );
     }
     else
     {
-        lastPeriod = path + strlen( path );
+        lastPeriod = lastChar;
     }
 
     string lastSlash = strrchr( path, '/' );
