@@ -182,9 +182,6 @@ void addSeries( string series )
         c = kKeywordMap[ *s++ ];
         switch ( c )
         {
-        case '\0':
-            break;
-
             // we hash the '&' character as if 'and' was used. so both forms generate the same hash
             // e.g. the hash of 'Will & Grace' will match the hash of 'Will and Grace'
         case '&':
@@ -208,11 +205,13 @@ void addSeries( string series )
             result = fKeywordHashChar( result, c );
             break;
 
+        case '\0':
+        case kKeywordSeparator:
+        case kKeywordIgnored:
+            break;
+
         default:
-            if ( c != kKeywordSeparator )
-            {
-                result = fKeywordHashChar( result, c );
-            }
+            result = fKeywordHashChar( result, c );
             break;
         }
     } while ( c != '\0' );
@@ -507,10 +506,6 @@ void tokenizeName( string originalName )
 				hash = fPatternHashChar( hash, 'd' );
 				ptr++;
 				break;
-
-            case kPatternIgnored:
-                ptr++;
-                break;
 
             default:
 				hash = fPatternHashChar( hash, c );

@@ -27,3 +27,5 @@ add_custom_target(hashes ALL DEPENDS ${OUTFILES})
 
 add_executable( DVR2Plex dvr2plex.c dvr2plex.h dictionary.c dictionary.h)
 target_link_libraries( DVR2Plex "/usr/lib/x86_64-linux-gnu/libdl.so" )
+
+add_executable(mkln mkln/mkln.c mkln/mkln.h)

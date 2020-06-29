@@ -4,22 +4,20 @@
 
 # DVR2Plex
 
-**Caution:** If you are new to the linux command line, and/or are unfamiliar
-with common linux tools like 'find', I wouldn't recommend this as a good first
-project because of the danger of overwriting existing files.
-
 This tool uses some fancy text processing techniques to reformat filename
 into another one. To be useful, this tool needs to be used with other Linux 
 command line tools, e.g. to copy (or hardlink) files to their new location.
 
-Since DVR2Plex isn't actually doing the copy/hardlinking itself, it
-cannot prevent the tool doing the copy from blindly overwriting an existing
-high-quality file with a lower quality one. Thus it's best to have your
-template generate a destination filename that won't overwrite any existing
-files.
+Since DVR2Plex isn't actually doing the copy/hardlinking itself, I've included
+a simple utility called **mkln**. I'd recommend using it, at least initially,
+as it's *safe* - it won't replace an existing file in the destination,
+(will append a number inside braces to avoid the name collision), and
+automatically creates directories specified by the target path that don't 
+yet exist.
 
-You must accept responsibility for your configuration and use of this tool,
-and accept that data loss is a possibility. Be careful when using this tool.
+***Caution** You must accept responsibility for your configuration and use
+of this tool, and accept that data loss is a possibility. Please be careful
+when using this tool.
 
 **Note:** this tool was written for a Linux environment. It *should* work
 fine inside WSL (Windows Services for Linux), but has had little testing
@@ -35,7 +33,7 @@ if everything uses the same organization and naming strategy.
 I'm also a fan of the [Channels DVR](https://getchannels.com/dvr-server/), 
 which is well implemented and has some features that I find particularly
 useful. It keeps its recordins in a private directory, and while it is
-well-orgainized, it's in a way that's a little different to the structure
+well-organized, it's in a way that's a little different to the structure
 that Plex prefers. More importantly, Channels DVR 'owns' the files in
 that folder, and other software should respect that, and not 'pull the rug'
 out from under Channels DVR by messing with those files behind its back.
@@ -54,7 +52,8 @@ directory. The inverse is also true - the Channels DVR can delete its
 file in the 'private' directory, without affecting the other link to it
 in the Plex library, so it will remain. This is very handy when used
 with the 'only keep *n* episodes' in Channels DVR (or
-[kmttg](https://sourceforge.net/projects/kmttg), for that matter).
+[kmttg](https://sourceforge.net/projects/kmttg) and
+[jellyfin](https://jellyfin.org/) for that matter).
 
 *Problem solved, right?* Well, mostly...
 
@@ -126,37 +125,47 @@ multiple times, the last one wins. So you could, for example, define a
 a default {title} as '(unknown)' in a config file, and it would be used
 if the file name parsing didn't find an episode title.
 
+DVR2Plex also looks for config files in the filesystem hierarchy above
+the source file. This is particularly useful for providing different
+templates and destinations for **TV** vs. **Movie** recordings, or
+handling a system running multiple DVR software (as I am). Obviously
+this check is made for each directory that DVR2Plex is asked to process
+files within, and so if found, these config files have 'the last say' in
+setting parameters, overriding everything else.
+
 You may also define your own parameters in the config file, and use them
 in the template. And if the output-building code can't find a parameter
 name that matches in its dictionaries, it will also look for an
 environment variable with that name (case-sensitive, in this case). So
 {HOME} will be replaced by the path to the user's home directory (i.e.
- the equivalent of '~')
+the equivalent of '~' in the shell)
 
-The assumption is that a config file would contain at least the
-{destination} and {template} parameters, since those are likely to be
-the consistent on a given machine. For example. `/etc/DVR2Plex.conf`
-might contain:
+The assumption is that at least one of the config file would contain
+at least the {destination} and {template} parameters, since those are
+likely to be the consistent on a given machine.
+ 
+For example. `/etc/DVR2Plex.conf` might contain:
 ```
 destination = /home/video/TV
-template = "{source}" "{destination}/{destseries?@/}{seasonfolder?@/}{destseries?@ }{season?S@}{episode?E@:-}{title? @}{extension}"
+template = mkln "{source}" "{destination}/{destseries?@/}{seasonfolder?@/}{destseries?@ }{season?S@}{episode?E@:-}{title? @}{extension}"
 ```
 So assuming that the source file was 
 `/home/Channels/TV/Person of Interest/Person of Interest S02E16 2013-02-21 Relevance 2018-12-30-0000.mpg` 
 and a directory existed called `/home/video/TV/Person of Interest (2011)`
-then that template would output:
+then that template would output (or execute):
  
- `"/home/video/TV/Person of Interest/Person of Interest S02E16 2013-02-21 Relevance 2018-12-30-0000.mpg" "/home/video/TV/Person of Interest (2011)/Season 02/Person of Interest (2011) S02E16 Relevence.mpg"`
+ `mkln "/home/video/TV/Person of Interest/Person of Interest S02E16 2013-02-21 Relevance 2018-12-30-0000.mpg" "/home/video/TV/Person of Interest (2011)/Season 02/Person of Interest (2011) S02E16 Relevence.mpg"`
  
- but perhaps more impressive is that a source file of `/home/paul/downloads/person.of.interest.2x16.relevence.mpg`
-  would also create the same destination of 
+but perhaps more impressive is that a source file of `/home/paul/downloads/person.of.interest.2x16.relevence.mpg`
+would also create the same destination: 
   `"/home/video/TV/Person of Interest (2011)/Season 02/Person of Interest (2011) S02E16 Relevence.mpg"`
 
-**Caution:** It's a good practice to include something in the template
-that is guaranteed to make the generated name unique, so that it won't
-overwrite an existing file in the destination (portentially a lower
-quality version). Since Channel DVR recordings have an .mpg extension,
-you'll probably be OK, but better safe than sorry.
+**Caution** DVR2Plex will blindly execute whatever you tell it to execute. It
+is just manipulating strings, after all. It has no notion of the quality of
+the source file vs. an existing destination file, and will happily overwrite
+a high quality file with a lower quality one if that's what you tell it to do.
+
+Be aware of this when creating a template you expect DVR2Plex to execute directly.
 
 ### Conditional Expansions
 *But wait, what on earth does {episode?E@:-} mean?*
@@ -181,12 +190,12 @@ The tool uses modified hashing to do comparisons. The hashing is
 modified by mapping each character through a mapping table first, so
 that particular characters can be mapped to another, or ignored
 completely. For example, upper case characters are mapped to lower case,
-so "UPPER" has the same hash as "upper" or "UpPeR"
+so "UPPER" has the same hash as "upper" and "UpPeR"
 
 DVR2Plex first builds up a list of hashes for the directories
 found in the {destination} directory.
 
-The matching algorithm is not phased by differing case, missing
+The matching algorithm isn't confused by differing case, missing
 apostrophes, presence or absence of a year or country (e.g.
 "hells_kitchen" will match a directory named "Hell's Kitchen (US)" in
 the destination.

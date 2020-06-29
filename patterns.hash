@@ -15,8 +15,6 @@ mappings:
     # mark these characters as 'kPatternSeperator'
     Seperator = " ._-"
 
-    Ignored = "?!"
-
     # mark this range as 'kPatternDigit'
     Digit = "0-9"
 
