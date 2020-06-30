@@ -5,18 +5,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>           /* Definition of AT_* constants */
+#include <fcntl.h>
 #include <libgen.h>
 #include <errno.h>
 #include <string.h>
-#include <ctype.h>
 #include <stdarg.h>
-#include <linux/stat.h>
 #include <linux/limits.h>
-
-#include "mkln.h"
 
 char * gInvokedAs;
 
